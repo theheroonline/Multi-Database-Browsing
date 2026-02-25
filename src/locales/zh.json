@@ -22,9 +22,10 @@
     "chinese": "中文"
   },
   "sidebar": {
-    "brand": "ES View",
+    "brand": "Multi-Database Browsing",
     "connection": "Connection",
     "connectionPlaceholder": "选择连接环境...",
+    "notConnected": "当前未连接，请点击左侧连接按钮",
     "menu": "Menu",
     "dataBrowser": "数据浏览",
     "sqlQuery": "简易SQL操作",
@@ -97,15 +98,15 @@
     "locatingData": "正在定位到第 {{position}} 条...",
     "fetchingPage": "正在获取第 {{page}} 页数据...",
     "jsonViewTip": "💡 提示：JSON 视图展示完整的文档数据",
-    "addMustCondition": "✅ 添加 must 条件",
-    "addShouldCondition": "🔶 添加 should 条件",
-    "addMustNotCondition": "❌ 添加 must_not 条件",
-    "sortAscending": "⬆️ 升序排序",
-    "sortDescending": "⬇️ 降序排序",
-    "expandRow": "🔽 展开当前行",
-    "collapseRow": "🔼 收起当前行",
-    "copyValue": "📋 复制",
-    "copyRow": "📋 复制当前行",
+    "addMustCondition": "添加 must 条件",
+    "addShouldCondition": "添加 should 条件",
+    "addMustNotCondition": "添加 must_not 条件",
+    "sortAscending": "升序排序",
+    "sortDescending": "降序排序",
+    "expandRow": "展开当前行",
+    "collapseRow": "收起当前行",
+    "copyValue": "复制",
+    "copyRow": "复制当前行",
     "current": "当前",
     "selected": "已选 {{count}} 条"
   },
@@ -163,11 +164,22 @@
     "createConnection": "新建连接",
     "nameAndAddressRequired": "名称和地址不能为空",
     "connectionNotFound": "连接不存在",
+    "mysqlTestNotReady": "MySQL 测试连接功能将在后续版本提供",
     "connectionSuccess": "连接成功：{{name}}",
     "connectionFailed": "连接失败：{{error}}",
+    "connectionFailedSimple": "连接失败",
     "editConnection": "新建 / 编辑连接",
     "name": "名称",
+    "engine": "数据源类型",
     "baseUrl": "Base URL",
+    "mysqlHost": "MySQL 主机",
+    "mysqlPort": "MySQL 端口",
+    "mysqlDatabase": "MySQL 数据库",
+    "useSshTunnel": "使用 SSH 隧道",
+    "sshHost": "SSH 主机",
+    "sshPort": "SSH 端口",
+    "sshUsername": "SSH 用户名",
+    "sshPassword": "SSH 密码",
     "authMethod": "认证方式",
     "authNone": "无 (None)",
     "authBasic": "用户名密码 (Basic)",
@@ -191,9 +203,15 @@
     "currentInUse": "当前使用",
     "setCurrent": "设为当前",
     "use": "使用",
+    "connect": "连接",
+    "disconnect": "断开",
     "testConnection": "测试连接",
     "test": "测试",
-    "noConnections": "暂无已保存的连接"
+    "noConnections": "暂无已保存的连接",
+    "selectTypeTitle": "选择数据库类型",
+    "selectTypeDescription": "请选择要配置的数据库连接类型。",
+    "elasticsearchEntry": "Elasticsearch 连接",
+    "mysqlEntry": "MySQL 连接"
   },
   "sqlQuery": {
     "title": "SQL 查询",
@@ -281,5 +299,44 @@
     "download": "下载",
     "batchCompleted": "批量完成 · ",
     "noResponse": "(暂无响应)"
+  },
+  "mysql": {
+    "query": {
+      "title": "MySQL 查询",
+      "description": "使用当前 MySQL 连接执行 SQL。",
+      "sql": "SQL 语句",
+      "execute": "执行",
+      "result": "查询结果",
+      "empty": "暂无结果，请执行 SQL。",
+      "noRows": "查询无数据",
+      "statementDone": "语句执行完成。",
+      "affectedRows": "影响行数：{{count}}",
+      "noMysqlConnection": "请先在连接中选择 MySQL 连接",
+      "executeFailed": "MySQL 执行失败："
+    },
+    "data": {
+      "title": "MySQL 数据浏览",
+      "description": "MySQL 数据浏览页面骨架已就绪，后续将补充表/数据浏览能力。",
+      "planTitle": "计划功能",
+      "itemTables": "表列表与库切换",
+      "itemSchema": "表结构与索引信息",
+      "itemRows": "分页查询与条件过滤"
+    },
+    "console": {
+      "title": "MySQL 高级控制台",
+      "description": "MySQL 控制台页面骨架已就绪，后续将补充脚本与批处理能力。",
+      "planTitle": "计划功能",
+      "itemSnippet": "SQL 脚本片段",
+      "itemParams": "参数化执行",
+      "itemExport": "结果导出与历史记录"
+    },
+    "indices": {
+      "title": "MySQL 索引管理",
+      "description": "MySQL 索引管理页面骨架已就绪，后续将补充索引查看与优化能力。",
+      "planTitle": "计划功能",
+      "itemList": "索引列表与筛选",
+      "itemDetail": "索引详情与状态",
+      "itemAnalyze": "索引建议与优化分析"
+    }
   }
 }

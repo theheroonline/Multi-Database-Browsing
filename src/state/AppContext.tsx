@@ -1,14 +1,27 @@
 import type { ReactNode } from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { listIndices } from "../lib/esView";
+import { listIndices } from "../lib/databaseClient";
 import { loadState, saveState } from "../lib/storage";
-import type { ConnectionProfile, EsConnection, IndexMeta, LocalState } from "../lib/types";
+import type { ConnectionProfile, EsConnection, IndexMeta, LocalState, SecretConfig } from "../lib/types";
+
+const normalizeProfile = (profile: ConnectionProfile): ConnectionProfile => ({
+  ...profile,
+  engine: profile.engine ?? "elasticsearch",
+  ssh: {
+    enabled: profile.ssh?.enabled ?? false,
+    host: profile.ssh?.host ?? "",
+    port: profile.ssh?.port ?? 22,
+    username: profile.ssh?.username ?? ""
+  }
+});
 
 interface AppContextValue {
   state: LocalState;
-  saveConnection: (profile: ConnectionProfile, secret: { username?: string; password?: string; apiKey?: string }) => Promise<void>;
+  activeConnectionId?: string;
+  saveConnection: (profile: ConnectionProfile, secret: SecretConfig) => Promise<void>;
   deleteConnection: (id: string) => Promise<void>;
   setActiveConnection: (id: string) => Promise<void>;
+  disconnectActiveConnection: () => Promise<void>;
   addHistory: (title: string, sql: string) => Promise<void>;
   clearHistory: () => Promise<void>;
   getActiveConnection: () => EsConnection | null;
@@ -23,8 +36,7 @@ interface AppContextValue {
 const defaultState: LocalState = {
   profiles: [],
   secrets: {},
-  history: [],
-  cachedIndicesByConnection: {}
+  history: []
 };
 
 const isSystemIndex = (name: string) => name.startsWith(".");
@@ -33,13 +45,26 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<LocalState>(defaultState);
+  const [connectedConnectionId, setConnectedConnectionId] = useState<string | undefined>(undefined);
   const [indices, setIndices] = useState<string[]>([]);
   const [indicesMeta, setIndicesMeta] = useState<IndexMeta[]>([]);
+  const [indicesCacheByConnection, setIndicesCacheByConnection] = useState<Record<string, { indices: string[]; indicesMeta: IndexMeta[] }>>({});
   const [stateLoaded, setStateLoaded] = useState(false);
 
   useEffect(() => {
     loadState().then((loaded) => {
-      setState(loaded);
+      const normalizedProfiles = (loaded.profiles ?? [])
+        .map((item) => normalizeProfile(item))
+        .filter((item) => (item.engine ?? "elasticsearch") === "elasticsearch");
+      const lastConnectionId = normalizedProfiles.some((item) => item.id === loaded.lastConnectionId)
+        ? loaded.lastConnectionId
+        : normalizedProfiles[0]?.id;
+
+      setState({
+        ...loaded,
+        profiles: normalizedProfiles,
+        lastConnectionId
+      });
       setStateLoaded(true);
     });
   }, []);
@@ -49,13 +74,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState(nextState);
   }, []);
 
-  const saveConnection = useCallback(async (profile: ConnectionProfile, secret: { username?: string; password?: string; apiKey?: string }) => {
+  const saveConnection = useCallback(async (profile: ConnectionProfile, secret: SecretConfig) => {
     const profiles = [...state.profiles];
     const index = profiles.findIndex((item) => item.id === profile.id);
+    const normalizedProfile = normalizeProfile(profile);
     if (index >= 0) {
-      profiles[index] = profile;
+      profiles[index] = normalizedProfile;
     } else {
-      profiles.push(profile);
+      profiles.push(normalizedProfile);
     }
     const nextState: LocalState = {
       ...state,
@@ -64,7 +90,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...state.secrets,
         [profile.id]: secret
       },
-      lastConnectionId: profile.id
+      lastConnectionId: normalizedProfile.id
     };
     await persist(nextState);
   }, [state, persist]);
@@ -73,21 +99,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const profiles = state.profiles.filter((item) => item.id !== id);
     const secrets = { ...state.secrets };
     delete secrets[id];
-    const cachedIndicesByConnection = { ...(state.cachedIndicesByConnection ?? {}) };
-    delete cachedIndicesByConnection[id];
     const nextState: LocalState = {
       ...state,
       profiles,
       secrets,
-      cachedIndicesByConnection,
       lastConnectionId: state.lastConnectionId === id ? profiles[0]?.id : state.lastConnectionId
     };
+    if (connectedConnectionId === id) {
+      setConnectedConnectionId(undefined);
+    }
+    setIndicesCacheByConnection((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     await persist(nextState);
-  }, [state, persist]);
+  }, [state, persist, connectedConnectionId]);
 
   const setActiveConnection = useCallback(async (id: string) => {
+    setConnectedConnectionId(id);
+    const cached = indicesCacheByConnection[id];
+    if (cached) {
+      setIndices(cached.indices);
+      setIndicesMeta(cached.indicesMeta);
+    } else {
+      setIndices([]);
+      setIndicesMeta([]);
+    }
     await persist({ ...state, lastConnectionId: id });
-  }, [state, persist]);
+  }, [state, persist, indicesCacheByConnection]);
+
+  const disconnectActiveConnection = useCallback(async () => {
+    setConnectedConnectionId(undefined);
+  }, []);
 
   const addHistory = useCallback(async (title: string, sql: string) => {
     const trimmedSql = sql.trim();
@@ -119,28 +163,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [state, persist]);
 
   const getActiveConnection = useCallback((): EsConnection | null => {
-    const id = state.lastConnectionId;
+    const id = connectedConnectionId;
     if (!id) return null;
     const profile = state.profiles.find((item) => item.id === id);
     if (!profile) return null;
     const secret = state.secrets[id] ?? {};
     return {
-      ...profile,
+      ...normalizeProfile(profile),
       username: secret.username,
       password: secret.password,
-      apiKey: secret.apiKey
+      apiKey: secret.apiKey,
+      sshPassword: secret.sshPassword
     };
-  }, [state]);
+  }, [state, connectedConnectionId]);
 
   const getConnectionById = useCallback((id: string): EsConnection | null => {
     const profile = state.profiles.find((item) => item.id === id);
     if (!profile) return null;
     const secret = state.secrets[id] ?? {};
     return {
-      ...profile,
+      ...normalizeProfile(profile),
       username: secret.username,
       password: secret.password,
-      apiKey: secret.apiKey
+      apiKey: secret.apiKey,
+      sshPassword: secret.sshPassword
     };
   }, [state]);
 
@@ -151,6 +197,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshIndices = useCallback(async (connection?: EsConnection | null) => {
     const target = connection ?? getActiveConnection();
     if (!target) {
+      setIndices([]);
+      setIndicesMeta([]);
+      return;
+    }
+    if ((target.engine ?? "elasticsearch") !== "elasticsearch") {
       setIndices([]);
       setIndicesMeta([]);
       return;
@@ -168,17 +219,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setIndices(nextIndices);
       setIndicesMeta(mapped);
+      setIndicesCacheByConnection((prev) => ({
+        ...prev,
+        [target.id]: {
+          indices: nextIndices,
+          indicesMeta: mapped
+        }
+      }));
 
-      const cachedIndicesByConnection = {
-        ...(state.cachedIndicesByConnection ?? {}),
-        [target.id]: mapped
-      };
-      const nextState: LocalState = {
-        ...state,
-        cachedIndicesByConnection,
-        selectedIndex: state.selectedIndex && nextIndices.includes(state.selectedIndex) ? state.selectedIndex : undefined
-      };
-      await persist(nextState);
+      if (state.selectedIndex && !nextIndices.includes(state.selectedIndex)) {
+        await persist({ ...state, selectedIndex: undefined });
+      }
     } catch {
       setIndices([]);
       setIndicesMeta([]);
@@ -188,29 +239,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const activeConnection = useMemo(() => getActiveConnection(), [getActiveConnection]);
 
   useEffect(() => {
+    if (!connectedConnectionId) return;
+    const exists = state.profiles.some((item) => item.id === connectedConnectionId);
+    if (!exists) {
+      setConnectedConnectionId(undefined);
+      setIndices([]);
+      setIndicesMeta([]);
+    }
+  }, [connectedConnectionId, state.profiles]);
+
+  useEffect(() => {
     if (!stateLoaded) return;
-    if (!activeConnection) {
+    if (!activeConnection) return;
+    if ((activeConnection.engine ?? "elasticsearch") !== "elasticsearch") {
       setIndices([]);
       setIndicesMeta([]);
-      return;
     }
-    const cached = state.cachedIndicesByConnection?.[activeConnection.id];
-    if (cached) {
-      setIndicesMeta(cached);
-      setIndices(cached.map((item) => item.index));
-      return;
-    }
-    refreshIndices(activeConnection).catch(() => {
-      setIndices([]);
-      setIndicesMeta([]);
-    });
-  }, [activeConnection, refreshIndices, state.cachedIndicesByConnection, stateLoaded]);
+  }, [activeConnection?.id, activeConnection?.engine, stateLoaded]);
 
   const value = useMemo(() => ({
     state,
+    activeConnectionId: connectedConnectionId,
     saveConnection,
     deleteConnection,
     setActiveConnection,
+    disconnectActiveConnection,
     addHistory,
     clearHistory,
     getActiveConnection,
@@ -220,7 +273,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshIndices,
     selectedIndex: state.selectedIndex,
     setSelectedIndex
-  }), [state, saveConnection, deleteConnection, setActiveConnection, addHistory, getActiveConnection, getConnectionById, indices, indicesMeta, refreshIndices, setSelectedIndex]);
+  }), [state, connectedConnectionId, saveConnection, deleteConnection, setActiveConnection, disconnectActiveConnection, addHistory, getActiveConnection, getConnectionById, indices, indicesMeta, refreshIndices, setSelectedIndex]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

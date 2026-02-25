@@ -22,9 +22,10 @@
     "chinese": "中文"
   },
   "sidebar": {
-    "brand": "ES View",
+    "brand": "Multi-Database Browsing",
     "connection": "Connection",
     "connectionPlaceholder": "Select connection environment...",
+    "notConnected": "Not connected. Click Connect on the left.",
     "menu": "Menu",
     "dataBrowser": "Data Browser",
     "sqlQuery": "SQL Query",
@@ -96,15 +97,15 @@
     "locatingData": "Locating to {{position}}...",
     "fetchingPage": "Fetching page {{page}} data...",
     "jsonViewTip": "💡 Tip: JSON view displays complete document data",
-    "addMustCondition": "✅ Add must condition",
-    "addShouldCondition": "🔶 Add should condition",
-    "addMustNotCondition": "❌ Add must_not condition",
-    "sortAscending": "⬆️ Sort ascending",
-    "sortDescending": "⬇️ Sort descending",
-    "expandRow": "🔽 Expand row",
-    "collapseRow": "🔼 Collapse row",
-    "copyValue": "📋 Copy",
-    "copyRow": "📋 Copy row",
+    "addMustCondition": "Add must condition",
+    "addShouldCondition": "Add should condition",
+    "addMustNotCondition": "Add must_not condition",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending",
+    "expandRow": "Expand row",
+    "collapseRow": "Collapse row",
+    "copyValue": "Copy",
+    "copyRow": "Copy row",
     "current": "Current",
     "selected": "{{count}} selected"
   },
@@ -162,11 +163,22 @@
     "createConnection": "New Connection",
     "nameAndAddressRequired": "Name and address cannot be empty",
     "connectionNotFound": "Connection not found",
+    "mysqlTestNotReady": "MySQL test connection is not available yet",
     "connectionSuccess": "Connection successful: {{name}}",
     "connectionFailed": "Connection failed: {{error}}",
+    "connectionFailedSimple": "Connection failed",
     "editConnection": "Create / Edit Connection",
     "name": "Name",
+    "engine": "Engine",
     "baseUrl": "Base URL",
+    "mysqlHost": "MySQL Host",
+    "mysqlPort": "MySQL Port",
+    "mysqlDatabase": "MySQL Database",
+    "useSshTunnel": "Use SSH Tunnel",
+    "sshHost": "SSH Host",
+    "sshPort": "SSH Port",
+    "sshUsername": "SSH Username",
+    "sshPassword": "SSH Password",
     "authMethod": "Authentication Method",
     "authNone": "None",
     "authBasic": "Username & Password (Basic)",
@@ -190,9 +202,15 @@
     "currentInUse": "In Use",
     "setCurrent": "Set Current",
     "use": "Use",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
     "testConnection": "Test Connection",
     "test": "Test",
-    "noConnections": "No saved connections"
+    "noConnections": "No saved connections",
+    "selectTypeTitle": "Select Database Type",
+    "selectTypeDescription": "Choose which database connection type you want to configure.",
+    "elasticsearchEntry": "Elasticsearch Connections",
+    "mysqlEntry": "MySQL Connections"
   },
   "sqlQuery": {
     "title": "SQL Query",
@@ -280,5 +298,44 @@
     "download": "Download",
     "batchCompleted": "Batch completed · ",
     "noResponse": "(No response)"
+  },
+  "mysql": {
+    "query": {
+      "title": "MySQL Query",
+      "description": "Execute SQL with the current MySQL connection.",
+      "sql": "SQL",
+      "execute": "Execute",
+      "result": "Result",
+      "empty": "No result yet. Execute a SQL statement.",
+      "noRows": "No rows returned",
+      "statementDone": "Statement executed.",
+      "affectedRows": "Affected rows: {{count}}",
+      "noMysqlConnection": "Please select a MySQL connection first",
+      "executeFailed": "MySQL execute failed:"
+    },
+    "data": {
+      "title": "MySQL Data Browser",
+      "description": "MySQL data browser skeleton is ready. Table and row browsing will be added next.",
+      "planTitle": "Planned Features",
+      "itemTables": "Table list and database switch",
+      "itemSchema": "Table schema and index details",
+      "itemRows": "Pagination and filters"
+    },
+    "console": {
+      "title": "MySQL Advanced Console",
+      "description": "MySQL console skeleton is ready. Script and batch capabilities will be added next.",
+      "planTitle": "Planned Features",
+      "itemSnippet": "SQL snippets",
+      "itemParams": "Parameterized execution",
+      "itemExport": "Result export and history"
+    },
+    "indices": {
+      "title": "MySQL Index Manager",
+      "description": "MySQL index manager skeleton is ready. Index visibility and tuning tools will be added next.",
+      "planTitle": "Planned Features",
+      "itemList": "Index list and filters",
+      "itemDetail": "Index detail and status",
+      "itemAnalyze": "Index advice and optimization"
+    }
   }
 }

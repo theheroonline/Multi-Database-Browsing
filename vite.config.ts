@@ -4,6 +4,20 @@ import { createProxyMiddleware, type RequestHandler } from "http-proxy-middlewar
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 
+function normalizeProxyTarget(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  try {
+    const url = new URL(withProtocol);
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 function esProxyPlugin(): Plugin {
   return {
     name: "es-proxy",
@@ -13,11 +27,11 @@ function esProxyPlugin(): Plugin {
         secure: false,
         router: (req: IncomingMessage) => {
           const targetHeader = req.headers["x-es-target"];
-          if (typeof targetHeader === "string" && targetHeader.length > 0) {
-            return targetHeader;
+          if (typeof targetHeader === "string") {
+            return normalizeProxyTarget(targetHeader) ?? "http://localhost:9200";
           }
           if (Array.isArray(targetHeader) && targetHeader[0]) {
-            return targetHeader[0];
+            return normalizeProxyTarget(targetHeader[0]) ?? "http://localhost:9200";
           }
           return "http://localhost:9200";
         },

@@ -5,9 +5,9 @@ import dayjs, { Dayjs } from "dayjs";
 import "dayjs/locale/zh-cn";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import FieldFilterButton, { type FieldFilterState } from "../components/FieldFilterButton";
-import { extractFieldsFromMapping, getIndexMapping, sqlQuery } from "../lib/esView";
-import { useAppContext } from "../state/AppContext";
+import FieldFilterButton, { type FieldFilterState } from "../../../components/FieldFilterButton";
+import { useAppContext } from "../../../state/AppContext";
+import { extractFieldsFromMapping, getIndexMapping, sqlQuery } from "../services/client";
 import SqlHistory from "./SqlHistory";
 
 const { RangePicker } = DatePicker;

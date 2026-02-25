@@ -1,5 +1,5 @@
 [package]
-name = "es-view"
+name = "multi-database-browsing"
 version = "0.1.0"
 description = "Local Elasticsearch client"
 authors = ["you"]

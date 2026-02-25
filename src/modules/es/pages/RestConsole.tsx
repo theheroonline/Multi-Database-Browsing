@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { esRequestRaw } from "../lib/esView";
-import { useAppContext } from "../state/AppContext";
+import { useAppContext } from "../../../state/AppContext";
+import { esRequestRaw } from "../services/client";
 
 const METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"] as const;
 

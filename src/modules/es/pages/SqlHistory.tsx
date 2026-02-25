@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useAppContext } from "../state/AppContext";
+import { useAppContext } from "../../../state/AppContext";
 
 export default function SqlHistory() {
   const { t } = useTranslation();

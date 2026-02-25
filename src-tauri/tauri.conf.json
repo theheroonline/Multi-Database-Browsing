@@ -1,7 +1,7 @@
 {
-  "productName": "ES View",
+  "productName": "Multi-Database Browsing",
   "version": "0.1.0",
-  "identifier": "com.local.esView",
+  "identifier": "com.local.multidatabasebrowsing",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build:tauri",
@@ -12,7 +12,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "ES View",
+        "title": "Multi-Database Browsing",
         "width": 1200,
         "height": 800
       }

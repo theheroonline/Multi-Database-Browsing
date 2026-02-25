@@ -1,17 +1,14 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { EsConnection } from "./types";
+import type { EsConnection } from "../../../lib/types";
 
-// 检测是否在 Tauri 环境中运行（使用官方 API，避免打包后误判为浏览器环境）
 const isTauriEnv = isTauri();
 
-// Rust 返回的响应类型
 interface HttpResponse {
   status: number;
   ok: boolean;
   body: string;
 }
 
-// 日志收集器
 let logBuffer: string[] = [];
 
 export function getConnectionLogs(): string[] {
@@ -28,7 +25,7 @@ function log(message: string, data?: unknown) {
     ? `[${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}`
     : `[${timestamp}] ${message}`;
   logBuffer.push(logLine);
-  console.log(logLine); // 开发模式下仍然输出到控制台
+  console.log(logLine);
 }
 
 function extractCredentials(baseUrl: string) {
@@ -74,7 +71,19 @@ function normalizeConnection(connection: EsConnection): EsConnection {
   return connection;
 }
 
-// 使用自定义 Rust 命令发送 HTTP 请求（Tauri 环境）
+function normalizeBaseUrl(baseUrl: string): string | null {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) return null;
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  try {
+    const url = new URL(withProtocol);
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 async function tauriHttpRequest(
   url: string,
   method: string,
@@ -86,7 +95,6 @@ async function tauriHttpRequest(
   });
 }
 
-// 使用浏览器 fetch（开发环境）
 async function browserHttpRequest(
   url: string,
   method: string,
@@ -118,16 +126,17 @@ export async function esRequest<T>(
     authType: normalized.authType
   });
 
-  const normalizedBase = normalized.baseUrl.replace(/\/$/, "");
+  const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
+  if (!normalizedBase) {
+    throw new Error("CONNECTION_FAILED");
+  }
   const requestPath = `/${path.replace(/^\//, "")}`;
-  
-  // 在浏览器中通过代理发送请求，在 Tauri 中直接发送
+
   let url: string;
   if (isTauriEnv) {
     url = `${normalizedBase}${requestPath}`;
     log("3. 构建请求 URL (Tauri直连)", url);
   } else {
-    // 浏览器环境：通过 /es 代理，并通过 x-es-target 头指定真实地址
     url = `/es${requestPath}`;
     log("3. 构建请求 URL (浏览器代理)", url);
   }
@@ -138,13 +147,12 @@ export async function esRequest<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
   };
-  
-  // 浏览器环境下，通过 x-es-target 头通知代理真实地址
+
   if (!isTauriEnv) {
     headers["x-es-target"] = normalizedBase;
     log("5. 已添加代理目标头", normalizedBase);
   }
-  
+
   const auth = buildAuthHeader(normalized);
   if (auth) {
     headers["Authorization"] = auth;
@@ -198,7 +206,10 @@ export async function esRequestRaw(
   log("=== ES 原始请求开始 ===");
 
   const normalized = normalizeConnection(connection);
-  const normalizedBase = normalized.baseUrl.replace(/\/$/, "");
+  const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
+  if (!normalizedBase) {
+    throw new Error("CONNECTION_FAILED");
+  }
   const requestPath = `/${path.replace(/^\//, "")}`;
 
   let url: string;

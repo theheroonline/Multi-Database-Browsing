@@ -1,8 +1,8 @@
-# ES View / ES View（本地客户端） 🚀
+# Multi-Database Browsing / 多数据库浏览器（本地客户端） 🚀
 
-**简短说明（中文）**：本项目是一个轻量级的本地 Elasticsearch 客户端，专注于常用查询与索引管理界面，兼容 Elasticsearch 7.1+。
+**简短说明（中文）**：本项目是一个轻量级的本地 Elasticsearch 浏览客户端。
 
-**Short description (English)**: A lightweight local Elasticsearch client focused on browsing, simple SQL querying, index management and multiple connection support. Compatible with Elasticsearch 7.1+.
+**Short description (English)**: A lightweight local Elasticsearch browsing client.
 
 <img width="1200" alt="screenshot" src="https://github.com/user-attachments/assets/56c63a4a-f958-40ea-bff3-18d6b2f50f93" />
 

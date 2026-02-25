@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { createIndex, deleteIndex, getIndexInfo, refreshIndex } from "../lib/esView";
-import { useAppContext } from "../state/AppContext";
+import { useAppContext } from "../../../state/AppContext";
+import { createIndex, deleteIndex, getIndexInfo, refreshIndex } from "../services/client";
 
 export default function IndexManager() {
   const { t } = useTranslation();

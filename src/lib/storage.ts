@@ -1,13 +1,12 @@
 import type { LocalState } from "./types";
 
-const STORAGE_KEY = "es-view.state";
-const CONFIG_FILE = "es-view.state.json";
+const STORAGE_KEY = "multi-database-browsing.state";
+const CONFIG_FILE = "multi-database-browsing.state.json";
 
 const defaultState: LocalState = {
   profiles: [],
   secrets: {},
-  history: [],
-  cachedIndicesByConnection: {}
+  history: []
 };
 
 function isTauri() {
@@ -41,8 +40,9 @@ export async function loadState(): Promise<LocalState> {
     return { ...defaultState };
   }
 
-  const data = JSON.parse(raw) as LocalState;
-  return { ...defaultState, ...data };
+  const data = JSON.parse(raw) as LocalState & { cachedIndicesByConnection?: unknown };
+  const { cachedIndicesByConnection: _legacyCache, ...rest } = data;
+  return { ...defaultState, ...rest };
 }
 
 export async function saveState(state: LocalState) {
