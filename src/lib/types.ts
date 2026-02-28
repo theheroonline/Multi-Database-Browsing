@@ -15,20 +15,6 @@ export interface SecretConfig {
   sshPassword?: string;
 }
 
-export interface EsConnection {
-  id: string;
-  name: string;
-  engine: EngineType;
-  baseUrl: string;
-  authType: AuthType;
-  username?: string;
-  password?: string;
-  apiKey?: string;
-  verifyTls: boolean;
-  ssh?: SshTunnelConfig;
-  sshPassword?: string;
-}
-
 export interface ConnectionProfile {
   id: string;
   name: string;
@@ -37,12 +23,6 @@ export interface ConnectionProfile {
   authType: AuthType;
   verifyTls: boolean;
   ssh?: SshTunnelConfig;
-}
-
-export interface IndexMeta {
-  index: string;
-  health?: string;
-  docsCount?: string;
 }
 
 export interface QueryHistoryItem {
@@ -57,5 +37,4 @@ export interface LocalState {
   secrets: Record<string, SecretConfig>;
   history: QueryHistoryItem[];
   lastConnectionId?: string;
-  selectedIndex?: string;
 }

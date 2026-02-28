@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { EsConnection } from "../../../lib/types";
+import type { EsConnection } from "../types";
 
 const isTauriEnv = isTauri();
 
@@ -7,25 +7,6 @@ interface HttpResponse {
   status: number;
   ok: boolean;
   body: string;
-}
-
-let logBuffer: string[] = [];
-
-export function getConnectionLogs(): string[] {
-  return [...logBuffer];
-}
-
-export function clearConnectionLogs() {
-  logBuffer = [];
-}
-
-function log(message: string, data?: unknown) {
-  const timestamp = new Date().toLocaleTimeString();
-  const logLine = data
-    ? `[${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}`
-    : `[${timestamp}] ${message}`;
-  logBuffer.push(logLine);
-  console.log(logLine);
 }
 
 function extractCredentials(baseUrl: string) {
@@ -88,10 +69,12 @@ async function tauriHttpRequest(
   url: string,
   method: string,
   headers: Record<string, string>,
-  body?: string
+  body?: string,
+  verifyTls = true,
+  auth?: { authType: string; username?: string; password?: string; apiKey?: string }
 ): Promise<{ status: number; ok: boolean; body: string }> {
   return await invoke<HttpResponse>("http_request", {
-    request: { url, method, headers, body }
+    request: { url, method, headers, body, verifyTls, auth }
   });
 }
 
@@ -111,38 +94,16 @@ export async function esRequest<T>(
   path: string,
   options: { method?: string; body?: unknown } = {}
 ) {
-  log("=== ES 请求开始 ===");
-  log("1. 原始连接信息", {
-    baseUrl: connection.baseUrl,
-    authType: connection.authType,
-    hasUsername: !!connection.username,
-    hasPassword: !!connection.password,
-    hasApiKey: !!connection.apiKey
-  });
-
   const normalized = normalizeConnection(connection);
-  log("2. 标准化后的连接", {
-    baseUrl: normalized.baseUrl,
-    authType: normalized.authType
-  });
-
   const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
   if (!normalizedBase) {
     throw new Error("CONNECTION_FAILED");
   }
   const requestPath = `/${path.replace(/^\//, "")}`;
 
-  let url: string;
-  if (isTauriEnv) {
-    url = `${normalizedBase}${requestPath}`;
-    log("3. 构建请求 URL (Tauri直连)", url);
-  } else {
-    url = `/es${requestPath}`;
-    log("3. 构建请求 URL (浏览器代理)", url);
-  }
-
-  log("4. 请求方法", options.method ?? "GET");
-  log("4.1 运行环境", isTauriEnv ? "Tauri" : "Browser");
+  const url = isTauriEnv
+    ? `${normalizedBase}${requestPath}`
+    : `/es${requestPath}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
@@ -150,52 +111,31 @@ export async function esRequest<T>(
 
   if (!isTauriEnv) {
     headers["x-es-target"] = normalizedBase;
-    log("5. 已添加代理目标头", normalizedBase);
   }
 
   const auth = buildAuthHeader(normalized);
-  if (auth) {
+  if (auth && !isTauriEnv) {
     headers["Authorization"] = auth;
-    log("5. 已添加认证头");
-  } else {
-    log("5. 无需认证");
   }
+
+  const tauriAuth = isTauriEnv ? {
+    authType: normalized.authType,
+    username: normalized.username,
+    password: normalized.password,
+    apiKey: normalized.apiKey
+  } : undefined;
 
   const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
-  if (bodyStr) {
-    log("6. 请求体", bodyStr.substring(0, 200));
+
+  const res = isTauriEnv
+    ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr, normalized.verifyTls ?? true, tauriAuth)
+    : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
+
+  if (!res.ok) {
+    throw new Error(res.body || `请求失败: ${res.status}`);
   }
 
-  log("7. 开始发送请求...");
-
-  try {
-    const res = isTauriEnv
-      ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr)
-      : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
-
-    log("8. 收到响应", {
-      status: res.status,
-      ok: res.ok
-    });
-
-    if (!res.ok) {
-      log("9. 响应失败", { status: res.status, body: res.body.substring(0, 500) });
-      throw new Error(res.body || `请求失败: ${res.status}`);
-    }
-
-    log("9. 解析 JSON 响应...");
-    const result = JSON.parse(res.body) as T;
-    log("10. 请求成功完成");
-    log("=== ES 请求结束 ===");
-    return result;
-  } catch (error) {
-    log("!!! 请求异常 !!!");
-    log("错误类型", error instanceof Error ? error.constructor.name : typeof error);
-    log("错误信息", error instanceof Error ? error.message : String(error));
-    log("完整错误", error);
-    log("=== ES 请求异常结束 ===");
-    throw error;
-  }
+  return JSON.parse(res.body) as T;
 }
 
 export async function esRequestRaw(
@@ -203,8 +143,6 @@ export async function esRequestRaw(
   path: string,
   options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
 ): Promise<{ status: number; ok: boolean; body: string }> {
-  log("=== ES 原始请求开始 ===");
-
   const normalized = normalizeConnection(connection);
   const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
   if (!normalizedBase) {
@@ -228,9 +166,17 @@ export async function esRequestRaw(
   }
 
   const auth = buildAuthHeader(normalized);
-  if (auth) {
+  if (auth && !isTauriEnv) {
     headers["Authorization"] = auth;
   }
+
+  // Build native auth for Tauri
+  const tauriAuth = isTauriEnv ? {
+    authType: normalized.authType,
+    username: normalized.username,
+    password: normalized.password,
+    apiKey: normalized.apiKey
+  } : undefined;
 
   let bodyStr: string | undefined;
   if (options.body !== undefined) {
@@ -247,15 +193,9 @@ export async function esRequestRaw(
     }
   }
 
-  try {
-    const res = isTauriEnv
-      ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr)
-      : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
-    return res;
-  } catch (error) {
-    log("错误信息", error instanceof Error ? error.message : String(error));
-    throw error;
-  }
+  return isTauriEnv
+    ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr, normalized.verifyTls ?? true, tauriAuth)
+    : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
 }
 
 export async function pingCluster(connection: EsConnection) {

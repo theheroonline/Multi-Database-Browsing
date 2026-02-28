@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../../../state/AppContext";
 import { createIndex, deleteIndex, getIndexInfo, refreshIndex } from "../services/client";
 
 export default function IndexManager() {
   const { t } = useTranslation();
-  const { getActiveConnection, selectedIndex, setSelectedIndex, refreshIndices, indicesMeta } = useAppContext();
-  const activeConnection = useMemo(() => getActiveConnection(), [getActiveConnection]);
+  const { activeConnection, selectedIndex, setSelectedIndex, refreshIndices, indicesMeta } = useAppContext();
   
   // Creation States
   const [showCreate, setShowCreate] = useState(false);
@@ -49,7 +48,7 @@ export default function IndexManager() {
       .finally(() => {
         setDetailLoading(false);
       });
-  }, [activeConnection, detailTarget]);
+  }, [activeConnection?.id, detailTarget]);
 
   const handleCreate = async () => {
     setError("");

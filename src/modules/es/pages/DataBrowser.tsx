@@ -34,10 +34,22 @@ type ContextMenuState = {
   value?: unknown;
 };
 
+type DataBrowserCacheState = {
+  selectedIndex?: string;
+  result: any;
+  page: number;
+  size: number;
+  conditions: ConditionItem[];
+  viewMode: ViewMode;
+  fieldFilter: FieldFilterState;
+};
+
+const dataBrowserCacheByConnection = new Map<string, DataBrowserCacheState>();
+
 export default function DataBrowser() {
   const { t, i18n } = useTranslation();
-  const { getActiveConnection, selectedIndex, setSelectedIndex, indices } = useAppContext();
-  const activeConnection = useMemo(() => getActiveConnection(), [getActiveConnection]);
+  const { activeConnection, indices } = useAppContext();
+  const [selectedIndex, setSelectedIndex] = useState<string | undefined>(undefined);
   const [fields, setFields] = useState<string[]>([]);
   const defaultCondition: ConditionItem = { field: "", operator: "term", value: "", boolType: "must", enabled: true };
   const [conditions, setConditions] = useState<ConditionItem[]>(() => [{ ...defaultCondition }]);
@@ -67,6 +79,7 @@ export default function DataBrowser() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const indexDropdownRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const skipNextAutoQueryRef = useRef(false);
 
   // Field Filter State (shared component)
   const [fieldFilter, setFieldFilter] = useState<FieldFilterState>({ enabled: false, fields: [] });
@@ -194,13 +207,19 @@ export default function DataBrowser() {
       setFields([]);
       return;
     }
+    let ignore = false;
     getIndexMapping(activeConnection, selectedIndex)
       .then((mapping) => {
+        if (ignore) return;
         const extracted = extractFieldsFromMapping(mapping, selectedIndex);
         setFields(extracted);
       })
-      .catch(() => setFields([]));
-  }, [activeConnection, selectedIndex]);
+      .catch(() => {
+        if (ignore) return;
+        setFields([]);
+      });
+    return () => { ignore = true; };
+  }, [activeConnection?.id, selectedIndex]);
 
   const handleIndexChange = (index: string) => {
     setSelectedIndex(index || undefined);
@@ -209,23 +228,93 @@ export default function DataBrowser() {
   };
 
   useEffect(() => {
-    setConditions([{ ...defaultCondition }]);
-    setResult(null);
-  }, [selectedIndex]);
-
-  // 当索引改变时自动执行查询
-  useEffect(() => {
-    if (selectedIndex && activeConnection) {
-      execute();
+    const connectionId = activeConnection?.id;
+    if (!connectionId) {
+      skipNextAutoQueryRef.current = false;
+      setSelectedIndex(undefined);
+      setConditions([{ ...defaultCondition }]);
+      setResult(null);
+      setPage(1);
+      setSize(10);
+      setFields([]);
+      setFieldFilter({ enabled: false, fields: [] });
+      setViewMode("table");
+      return;
     }
-  }, [selectedIndex, activeConnection]);
 
-  // 当页码或每页数改变时自动执行查询
-  useEffect(() => {
-    if (selectedIndex && activeConnection && page > 0 && size > 0) {
-      execute();
+    const cached = dataBrowserCacheByConnection.get(connectionId);
+    if (!cached) {
+      skipNextAutoQueryRef.current = false;
+      setSelectedIndex(undefined);
+      setConditions([{ ...defaultCondition }]);
+      setResult(null);
+      setPage(1);
+      setSize(10);
+      setFields([]);
+      setFieldFilter({ enabled: false, fields: [] });
+      setViewMode("table");
+      return;
     }
-  }, [page, size, selectedIndex, activeConnection]);
+
+    skipNextAutoQueryRef.current = Boolean(cached.selectedIndex && cached.result);
+    setSelectedIndex(cached.selectedIndex);
+    setResult(cached.result);
+    setPage(cached.page);
+    setSize(cached.size);
+    setConditions(cached.conditions.length > 0 ? cached.conditions : [{ ...defaultCondition }]);
+    setFieldFilter(cached.fieldFilter);
+    setViewMode(cached.viewMode);
+  }, [activeConnection?.id]);
+
+  useEffect(() => {
+    if (selectedIndex && !indices.includes(selectedIndex)) {
+      setSelectedIndex(undefined);
+      setResult(null);
+    }
+  }, [indices, selectedIndex]);
+
+  useEffect(() => {
+    const connectionId = activeConnection?.id;
+    if (!connectionId) return;
+    dataBrowserCacheByConnection.set(connectionId, {
+      selectedIndex,
+      result,
+      page,
+      size,
+      conditions,
+      viewMode,
+      fieldFilter
+    });
+  }, [activeConnection?.id, selectedIndex, result, page, size, conditions, viewMode, fieldFilter]);
+
+  // 当索引/页码/每页数改变时自动执行查询（合并为单个 effect 避免重复请求）
+  useEffect(() => {
+    if (!selectedIndex || !activeConnection || page <= 0 || size <= 0) return;
+    if (skipNextAutoQueryRef.current) {
+      skipNextAutoQueryRef.current = false;
+      return;
+    }
+    let ignore = false;
+
+    (async () => {
+      setError("");
+      setLoading(true);
+      setLoadingMessage("");
+      try {
+        const response = await executeQuery();
+        if (!ignore) setResult(response);
+      } catch (err) {
+        if (!ignore) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+          setLoadingMessage("");
+        }
+      }
+    })();
+
+    return () => { ignore = true; };
+  }, [page, size, selectedIndex, activeConnection?.id]);
 
   // 同步 size -> sizeInput（当 size 被程序性更新时）
   useEffect(() => {

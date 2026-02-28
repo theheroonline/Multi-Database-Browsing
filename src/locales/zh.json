@@ -200,7 +200,7 @@
     "address": "地址",
     "authentication": "认证",
     "operations": "操作",
-    "currentInUse": "当前使用",
+    "currentInUse": "连接中",
     "setCurrent": "设为当前",
     "use": "使用",
     "connect": "连接",

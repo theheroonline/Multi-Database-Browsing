@@ -3,7 +3,7 @@ import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import dayjs, { Dayjs } from "dayjs";
 import "dayjs/locale/zh-cn";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import FieldFilterButton, { type FieldFilterState } from "../../../components/FieldFilterButton";
 import { useAppContext } from "../../../state/AppContext";
@@ -22,10 +22,22 @@ type WhereCondition = {
   rangeValue?: [Dayjs | null, Dayjs | null] | null;
 };
 
+type SqlQueryCacheState = {
+  selectedIndex?: string;
+  result: { columns: string[]; rows: Array<Array<unknown>> } | null;
+  operation: SqlOperation;
+  whereConditions: WhereCondition[];
+  payload: string;
+  limit: number;
+  fieldFilter: FieldFilterState;
+};
+
+const sqlQueryCacheByConnection = new Map<string, SqlQueryCacheState>();
+
 export default function SqlQuery() {
   const { t, i18n } = useTranslation();
-  const { getActiveConnection, addHistory, indices, selectedIndex, setSelectedIndex } = useAppContext();
-  const activeConnection = useMemo(() => getActiveConnection(), [getActiveConnection]);
+  const { activeConnection, addHistory, indices } = useAppContext();
+  const [selectedIndex, setSelectedIndex] = useState<string | undefined>(undefined);
   const [operation, setOperation] = useState<SqlOperation>("select");
   const [availableFields, setAvailableFields] = useState<string[]>([]);
   const [whereConditions, setWhereConditions] = useState<WhereCondition[]>([
@@ -54,19 +66,82 @@ export default function SqlQuery() {
     dayjs.locale(i18n.language === "zh" ? "zh-cn" : "en");
   }, [i18n.language]);
 
+  useEffect(() => {
+    const connectionId = activeConnection?.id;
+    if (!connectionId) {
+      setSelectedIndex(undefined);
+      setAvailableFields([]);
+      setResult(null);
+      setOperation("select");
+      setWhereConditions([{ field: "", operator: "=", value: "", enabled: true }]);
+      setPayload("{}");
+      setLimit(100);
+      setFieldFilter({ enabled: false, fields: [] });
+      return;
+    }
+
+    const cached = sqlQueryCacheByConnection.get(connectionId);
+    if (!cached) {
+      setSelectedIndex(undefined);
+      setAvailableFields([]);
+      setResult(null);
+      setOperation("select");
+      setWhereConditions([{ field: "", operator: "=", value: "", enabled: true }]);
+      setPayload("{}");
+      setLimit(100);
+      setFieldFilter({ enabled: false, fields: [] });
+      return;
+    }
+
+    setSelectedIndex(cached.selectedIndex);
+    setResult(cached.result);
+    setOperation(cached.operation);
+    setWhereConditions(cached.whereConditions.length > 0 ? cached.whereConditions : [{ field: "", operator: "=", value: "", enabled: true }]);
+    setPayload(cached.payload);
+    setLimit(cached.limit);
+    setFieldFilter(cached.fieldFilter);
+  }, [activeConnection?.id]);
+
+  useEffect(() => {
+    if (selectedIndex && !indices.includes(selectedIndex)) {
+      setSelectedIndex(undefined);
+      setResult(null);
+    }
+  }, [indices, selectedIndex]);
+
+  useEffect(() => {
+    const connectionId = activeConnection?.id;
+    if (!connectionId) return;
+    sqlQueryCacheByConnection.set(connectionId, {
+      selectedIndex,
+      result,
+      operation,
+      whereConditions,
+      payload,
+      limit,
+      fieldFilter
+    });
+  }, [activeConnection?.id, selectedIndex, result, operation, whereConditions, payload, limit, fieldFilter]);
+
   // 获取索引字段
   useEffect(() => {
     if (!activeConnection || !selectedIndex) {
       setAvailableFields([]);
       return;
     }
+    let ignore = false;
     getIndexMapping(activeConnection, selectedIndex)
       .then((mapping) => {
+        if (ignore) return;
         const extracted = extractFieldsFromMapping(mapping, selectedIndex);
         setAvailableFields(extracted);
       })
-      .catch(() => setAvailableFields([]));
-  }, [activeConnection, selectedIndex]);
+      .catch(() => {
+        if (ignore) return;
+        setAvailableFields([]);
+      });
+    return () => { ignore = true; };
+  }, [activeConnection?.id, selectedIndex]);
 
   const formatDateTime = (value: Dayjs | null) => (value ? value.format("YYYY-MM-DD HH:mm:ss") : "");
 

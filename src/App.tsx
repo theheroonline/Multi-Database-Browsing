@@ -1,12 +1,12 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { pingCluster } from "./lib/databaseClient";
 import EsConnectionsPage from "./modules/es/pages/Connections";
 import DataBrowser from "./modules/es/pages/DataBrowser";
 import IndexManager from "./modules/es/pages/IndexManager";
 import RestConsole from "./modules/es/pages/RestConsole";
 import SqlQuery from "./modules/es/pages/SqlQuery";
+import { pingCluster } from "./modules/es/services/client";
 import { AppProvider, useAppContext } from "./state/AppContext";
 
 type ConnectionStatus = "success" | "idle" | "failed";
@@ -43,6 +43,7 @@ function AppLayout() {
   const [isConnectionActionPending, setIsConnectionActionPending] = useState(false);
   const [connectionActionError, setConnectionActionError] = useState("");
   const [connectionStatusById, setConnectionStatusById] = useState<Record<string, ConnectionStatus>>({});
+  const [isWorkspaceSuspended, setIsWorkspaceSuspended] = useState(false);
 
   const markConnectionSuccess = (connectionId: string) => {
     setConnectionStatusById((prev) => ({
@@ -63,7 +64,14 @@ function AppLayout() {
 
   const handleConnectionChange = async (value: string, options?: { forceValidate?: boolean }) => {
     if (isConnectionActionPending) return;
-    if (activeConnectionId === value) return;
+    if (activeConnectionId === value) {
+      if (isWorkspaceSuspended) {
+        setConnectionActionError("");
+        setIsWorkspaceSuspended(false);
+        await navigate("/data");
+      }
+      return;
+    }
 
     setIsConnectionActionPending(true);
     setConnectionActionError("");
@@ -87,12 +95,15 @@ function AppLayout() {
         await refreshIndices(connection);
       }
       markConnectionSuccess(value);
+      setIsWorkspaceSuspended(false);
       await navigate("/data");
     } catch {
       setConnectionStatusById((prev) => ({
         ...prev,
         [value]: "failed"
       }));
+      setIsWorkspaceSuspended(true);
+      await navigate("/", { replace: true });
       setConnectionActionError(t("connections.connectionFailedSimple"));
     } finally {
       setIsConnectionActionPending(false);
@@ -109,6 +120,7 @@ function AppLayout() {
 
     try {
       await disconnectActiveConnection();
+      setIsWorkspaceSuspended(false);
       setConnectionStatusById((prev) => ({
         ...prev,
         [currentId]: "idle"
@@ -193,8 +205,14 @@ function AppLayout() {
     markConnectionSuccess(activeConnectionId);
   }, [activeConnectionId]);
 
+  useEffect(() => {
+    if (activeConnectionId) return;
+    if (!isWorkspaceSuspended) return;
+    setIsWorkspaceSuspended(false);
+  }, [activeConnectionId, isWorkspaceSuspended]);
+
   const showConnectionsTab = location.pathname.startsWith("/connections");
-  const canShowWorkspace = Boolean(activeConnectionId) || showConnectionsTab;
+  const canShowWorkspace = (Boolean(activeConnectionId) && !isWorkspaceSuspended) || showConnectionsTab;
 
   return (
     <div className="mdb-layout">
@@ -256,13 +274,23 @@ function AppLayout() {
                       className={`mdb-tree-item ${focusedConnectionId === profile.id ? "active" : ""}`}
                       onClick={() => {
                         setFocusedConnectionId(profile.id);
-                        if (activeConnectionId === profile.id) return;
+                        if (activeConnectionId === profile.id) {
+                          if (isWorkspaceSuspended) {
+                            handleConnectionChange(profile.id, { forceValidate: false });
+                          }
+                          return;
+                        }
                         if (status === "success") {
                           handleConnectionChange(profile.id, { forceValidate: false });
                         }
                       }}
                       onDoubleClick={() => {
-                        if (activeConnectionId === profile.id) return;
+                        if (activeConnectionId === profile.id) {
+                          if (isWorkspaceSuspended) {
+                            handleConnectionChange(profile.id, { forceValidate: false });
+                          }
+                          return;
+                        }
                         if (status !== "success") {
                           handleConnectionChange(profile.id, { forceValidate: true });
                         }
@@ -273,7 +301,12 @@ function AppLayout() {
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          if (activeConnectionId === profile.id) return;
+                          if (activeConnectionId === profile.id) {
+                            if (isWorkspaceSuspended) {
+                              handleConnectionChange(profile.id, { forceValidate: false });
+                            }
+                            return;
+                          }
                           if (status === "success") {
                             handleConnectionChange(profile.id, { forceValidate: false });
                           }
@@ -338,15 +371,26 @@ function AppLayout() {
             </div>
 
             <section className="mdb-content">
+              {/* Routes 仅处理重定向和连接配置页 */}
               <Routes>
                 <Route path="/" element={<Navigate to="/data" replace />} />
                 <Route path="/connections" element={<EsConnectionsPage />} />
                 <Route path="/connections/es" element={<Navigate to="/connections?action=add" replace />} />
-                <Route path="/sql" element={<SqlQuery />} />
-                <Route path="/data" element={<DataBrowser />} />
-                <Route path="/indices" element={<IndexManager />} />
-                <Route path="/rest" element={<RestConsole />} />
+                <Route path="*" element={null} />
               </Routes>
+              {/* 工作区页面始终挂载，通过 display 控制可见性，避免切换 tab 时状态丢失 */}
+              <div style={{ display: location.pathname === "/data" ? undefined : "none" }}>
+                <DataBrowser />
+              </div>
+              <div style={{ display: location.pathname === "/sql" ? undefined : "none" }}>
+                <SqlQuery />
+              </div>
+              <div style={{ display: location.pathname === "/rest" ? undefined : "none" }}>
+                <RestConsole />
+              </div>
+              <div style={{ display: location.pathname === "/indices" ? undefined : "none" }}>
+                <IndexManager />
+              </div>
             </section>
           </div>
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../../../state/AppContext";
 import { esRequestRaw } from "../services/client";
@@ -35,8 +35,7 @@ type ScriptTemplate = {
 
 export default function RestConsole() {
   const { t } = useTranslation();
-  const { getActiveConnection } = useAppContext();
-  const activeConnection = useMemo(() => getActiveConnection(), [getActiveConnection]);
+  const { activeConnection } = useAppContext();
 
   const [method, setMethod] = useState<HttpMethod>("GET");
   const [path, setPath] = useState("/_cluster/health");

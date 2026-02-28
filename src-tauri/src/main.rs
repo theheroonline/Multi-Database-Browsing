@@ -4,11 +4,28 @@ use serde::{Deserialize, Serialize};
 use tauri::command;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HttpRequest {
     url: String,
     method: String,
     headers: Option<std::collections::HashMap<String, String>>,
     body: Option<String>,
+    #[serde(default = "default_verify_tls")]
+    verify_tls: bool,
+    auth: Option<HttpAuth>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpAuth {
+    auth_type: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    api_key: Option<String>,
+}
+
+fn default_verify_tls() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -20,29 +37,58 @@ pub struct HttpResponse {
 
 #[command]
 async fn http_request(request: HttpRequest) -> Result<HttpResponse, String> {
-    let client = reqwest::Client::new();
+    let HttpRequest {
+        url,
+        method,
+        headers,
+        body,
+        verify_tls,
+        auth,
+    } = request;
+
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(!verify_tls)
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     
-    let method = match request.method.to_uppercase().as_str() {
+    let method = match method.to_uppercase().as_str() {
         "GET" => reqwest::Method::GET,
         "POST" => reqwest::Method::POST,
         "PUT" => reqwest::Method::PUT,
         "DELETE" => reqwest::Method::DELETE,
         "HEAD" => reqwest::Method::HEAD,
         "PATCH" => reqwest::Method::PATCH,
-        _ => return Err(format!("Unsupported HTTP method: {}", request.method)),
+        _ => return Err(format!("Unsupported HTTP method: {}", method)),
     };
 
-    let mut req_builder = client.request(method, &request.url);
+    let mut req_builder = client.request(method, &url);
 
-    // Add headers
-    if let Some(headers) = request.headers {
+    // Add headers first
+    if let Some(headers) = headers {
         for (key, value) in headers {
             req_builder = req_builder.header(&key, &value);
         }
     }
 
+    // Apply native auth (overwrites any JS-provided Authorization header)
+    if let Some(auth_info) = auth {
+        match auth_info.auth_type.as_deref() {
+            Some("basic") => {
+                if let (Some(username), Some(password)) = (auth_info.username, auth_info.password) {
+                    req_builder = req_builder.basic_auth(username, Some(password));
+                }
+            }
+            Some("apiKey") => {
+                if let Some(api_key) = auth_info.api_key {
+                    req_builder = req_builder.header("Authorization", format!("ApiKey {}", api_key));
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Add body
-    if let Some(body) = request.body {
+    if let Some(body) = body {
         req_builder = req_builder.body(body);
     }
 

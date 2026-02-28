@@ -199,7 +199,7 @@
     "address": "Address",
     "authentication": "Auth",
     "operations": "Operations",
-    "currentInUse": "In Use",
+    "currentInUse": "Connected",
     "setCurrent": "Set Current",
     "use": "Use",
     "connect": "Connect",

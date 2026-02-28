@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { listIndices } from "../lib/databaseClient";
 import { loadState, saveState } from "../lib/storage";
-import type { ConnectionProfile, EsConnection, IndexMeta, LocalState, SecretConfig } from "../lib/types";
+import type { ConnectionProfile, LocalState, SecretConfig } from "../lib/types";
+import { listIndices } from "../modules/es/services/client";
+import type { EsConnection, IndexMeta } from "../modules/es/types";
 
 const normalizeProfile = (profile: ConnectionProfile): ConnectionProfile => ({
   ...profile,
@@ -24,13 +25,14 @@ interface AppContextValue {
   disconnectActiveConnection: () => Promise<void>;
   addHistory: (title: string, sql: string) => Promise<void>;
   clearHistory: () => Promise<void>;
+  activeConnection: EsConnection | null;
   getActiveConnection: () => EsConnection | null;
   getConnectionById: (id: string) => EsConnection | null;
   indices: string[];
   indicesMeta: IndexMeta[];
   refreshIndices: (connection?: EsConnection | null) => Promise<void>;
   selectedIndex: string | undefined;
-  setSelectedIndex: (index: string | undefined) => Promise<void>;
+  setSelectedIndex: (index: string | undefined) => void;
 }
 
 const defaultState: LocalState = {
@@ -46,6 +48,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<LocalState>(defaultState);
   const [connectedConnectionId, setConnectedConnectionId] = useState<string | undefined>(undefined);
+  const [selectedIndex, setSelectedIndexState] = useState<string | undefined>(undefined);
   const [indices, setIndices] = useState<string[]>([]);
   const [indicesMeta, setIndicesMeta] = useState<IndexMeta[]>([]);
   const [indicesCacheByConnection, setIndicesCacheByConnection] = useState<Record<string, { indices: string[]; indicesMeta: IndexMeta[] }>>({});
@@ -131,6 +134,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const disconnectActiveConnection = useCallback(async () => {
     setConnectedConnectionId(undefined);
+    setSelectedIndexState(undefined);
+  }, []);
+
+  const setSelectedIndex = useCallback((index: string | undefined) => {
+    setSelectedIndexState(index);
   }, []);
 
   const addHistory = useCallback(async (title: string, sql: string) => {
@@ -190,9 +198,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [state]);
 
-  const setSelectedIndex = useCallback(async (index: string | undefined) => {
-    await persist({ ...state, selectedIndex: index });
-  }, [state, persist]);
+
 
   const refreshIndices = useCallback(async (connection?: EsConnection | null) => {
     const target = connection ?? getActiveConnection();
@@ -227,14 +233,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }));
 
-      if (state.selectedIndex && !nextIndices.includes(state.selectedIndex)) {
-        await persist({ ...state, selectedIndex: undefined });
-      }
+      setSelectedIndexState((prev) => {
+        if (prev && !nextIndices.includes(prev)) return undefined;
+        return prev;
+      });
     } catch {
       setIndices([]);
       setIndicesMeta([]);
     }
-  }, [getActiveConnection, persist, state]);
+  }, [getActiveConnection]);
 
   const activeConnection = useMemo(() => getActiveConnection(), [getActiveConnection]);
 
@@ -266,14 +273,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     disconnectActiveConnection,
     addHistory,
     clearHistory,
+    activeConnection,
     getActiveConnection,
     getConnectionById,
     indices,
     indicesMeta,
     refreshIndices,
-    selectedIndex: state.selectedIndex,
+    selectedIndex,
     setSelectedIndex
-  }), [state, connectedConnectionId, saveConnection, deleteConnection, setActiveConnection, disconnectActiveConnection, addHistory, getActiveConnection, getConnectionById, indices, indicesMeta, refreshIndices, setSelectedIndex]);
+  }), [state, connectedConnectionId, saveConnection, deleteConnection, setActiveConnection, disconnectActiveConnection, addHistory, clearHistory, activeConnection, getActiveConnection, getConnectionById, indices, indicesMeta, refreshIndices, selectedIndex, setSelectedIndex]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
