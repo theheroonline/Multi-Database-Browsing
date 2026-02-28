@@ -4,7 +4,8 @@
 
 **Short description (English)**: A lightweight local Elasticsearch browsing client.
 
-<img width="1200" alt="screenshot" src="https://github.com/user-attachments/assets/56c63a4a-f958-40ea-bff3-18d6b2f50f93" />
+<img width="1318" height="839" alt="1fa5a634-2766-4d40-9275-5f63be500838" src="https://github.com/user-attachments/assets/8163aa63-4134-45df-a3b3-dd45d05d61f5" />
+
 
 ---
 
