@@ -1,5 +1,5 @@
 export type AuthType = "none" | "basic" | "apiKey";
-export type EngineType = "elasticsearch";
+export type EngineType = "elasticsearch" | "mysql";
 
 export interface SshTunnelConfig {
   enabled: boolean;
@@ -20,6 +20,9 @@ export interface ConnectionProfile {
   name: string;
   engine: EngineType;
   baseUrl: string;
+  mysqlHost?: string;
+  mysqlPort?: number;
+  mysqlDatabase?: string;
   authType: AuthType;
   verifyTls: boolean;
   ssh?: SshTunnelConfig;

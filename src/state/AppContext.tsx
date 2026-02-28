@@ -57,8 +57,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadState().then((loaded) => {
       const normalizedProfiles = (loaded.profiles ?? [])
-        .map((item) => normalizeProfile(item))
-        .filter((item) => (item.engine ?? "elasticsearch") === "elasticsearch");
+        .map((item) => normalizeProfile(item));
       const lastConnectionId = normalizedProfiles.some((item) => item.id === loaded.lastConnectionId)
         ? loaded.lastConnectionId
         : normalizedProfiles[0]?.id;

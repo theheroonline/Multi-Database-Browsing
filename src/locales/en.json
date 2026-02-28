@@ -300,6 +300,11 @@
     "noResponse": "(No response)"
   },
   "mysql": {
+    "sidebar": {
+      "dataBrowser": "Data Browser",
+      "sqlQuery": "SQL Query",
+      "tableManager": "Table Manager"
+    },
     "query": {
       "title": "MySQL Query",
       "description": "Execute SQL with the current MySQL connection.",
@@ -315,27 +320,37 @@
     },
     "data": {
       "title": "MySQL Data Browser",
-      "description": "MySQL data browser skeleton is ready. Table and row browsing will be added next.",
-      "planTitle": "Planned Features",
-      "itemTables": "Table list and database switch",
-      "itemSchema": "Table schema and index details",
-      "itemRows": "Pagination and filters"
+      "selectDatabase": "Database",
+      "selectTable": "Table",
+      "noTables": "No tables in this database",
+      "rowCount": "rows",
+      "columns": "Columns",
+      "showStructure": "Show Structure",
+      "hideStructure": "Hide Structure",
+      "selectTableHint": "Please select a database and table first"
     },
-    "console": {
-      "title": "MySQL Advanced Console",
-      "description": "MySQL console skeleton is ready. Script and batch capabilities will be added next.",
-      "planTitle": "Planned Features",
-      "itemSnippet": "SQL snippets",
-      "itemParams": "Parameterized execution",
-      "itemExport": "Result export and history"
-    },
-    "indices": {
-      "title": "MySQL Index Manager",
-      "description": "MySQL index manager skeleton is ready. Index visibility and tuning tools will be added next.",
-      "planTitle": "Planned Features",
-      "itemList": "Index list and filters",
-      "itemDetail": "Index detail and status",
-      "itemAnalyze": "Index advice and optimization"
+    "tableManager": {
+      "databases": "Databases",
+      "createTable": "Create Table",
+      "dropTable": "Drop Table",
+      "truncate": "Truncate",
+      "addColumn": "Add Column",
+      "editStructure": "Edit Structure",
+      "dropColumn": "Drop Column",
+      "columnName": "Column Name",
+      "columnType": "Column Type",
+      "nullable": "Nullable",
+      "defaultValue": "Default Value",
+      "extra": "Extra",
+      "selectTableHint": "Select a table from the left panel to view its structure",
+      "executeSql": "Execute SQL",
+      "browseData": "Browse Data",
+      "viewStructure": "View Structure",
+      "dropDatabase": "Drop Database",
+      "refreshTables": "Refresh",
+      "structure": "Structure",
+      "data": "Data",
+      "selectTableDataHint": "Double-click a table to browse data, or right-click for more options"
     }
   }
 }

@@ -4,7 +4,6 @@
 
 **Short description (English)**: A lightweight local Elasticsearch browsing client.
 
-<img width="1318" height="839" alt="1fa5a634-2766-4d40-9275-5f63be500838" src="https://github.com/user-attachments/assets/8163aa63-4134-45df-a3b3-dd45d05d61f5" />
 
 
 ---
@@ -38,6 +37,8 @@ npm install
 ```bash
 npm run dev
 ```
+
+> 注意 / Note: `npm run dev` 仅启动浏览器端页面。MySQL 功能依赖 Tauri 后端命令，需使用 `npm run tauri:dev` 才能连接与操作 MySQL。
 
 3. 打包 / Build
 

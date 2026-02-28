@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod mysql;
+
 use serde::{Deserialize, Serialize};
 use tauri::command;
 
@@ -110,10 +112,20 @@ async fn http_request(request: HttpRequest) -> Result<HttpResponse, String> {
 
 fn main() {
     tauri::Builder::default()
+        .manage(mysql::MysqlPoolManager::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![http_request])
+        .invoke_handler(tauri::generate_handler![
+            http_request,
+            mysql::mysql_connect,
+            mysql::mysql_disconnect,
+            mysql::mysql_ping,
+            mysql::mysql_query,
+            mysql::mysql_list_databases,
+            mysql::mysql_list_tables,
+            mysql::mysql_describe_table,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

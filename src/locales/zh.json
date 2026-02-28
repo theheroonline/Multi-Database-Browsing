@@ -301,6 +301,11 @@
     "noResponse": "(暂无响应)"
   },
   "mysql": {
+    "sidebar": {
+      "dataBrowser": "数据浏览",
+      "sqlQuery": "SQL 查询",
+      "tableManager": "表管理"
+    },
     "query": {
       "title": "MySQL 查询",
       "description": "使用当前 MySQL 连接执行 SQL。",
@@ -316,27 +321,37 @@
     },
     "data": {
       "title": "MySQL 数据浏览",
-      "description": "MySQL 数据浏览页面骨架已就绪，后续将补充表/数据浏览能力。",
-      "planTitle": "计划功能",
-      "itemTables": "表列表与库切换",
-      "itemSchema": "表结构与索引信息",
-      "itemRows": "分页查询与条件过滤"
+      "selectDatabase": "选择数据库",
+      "selectTable": "选择数据表",
+      "noTables": "该数据库下暂无数据表",
+      "rowCount": "行",
+      "columns": "列信息",
+      "showStructure": "显示结构",
+      "hideStructure": "隐藏结构",
+      "selectTableHint": "请先选择数据库和数据表"
     },
-    "console": {
-      "title": "MySQL 高级控制台",
-      "description": "MySQL 控制台页面骨架已就绪，后续将补充脚本与批处理能力。",
-      "planTitle": "计划功能",
-      "itemSnippet": "SQL 脚本片段",
-      "itemParams": "参数化执行",
-      "itemExport": "结果导出与历史记录"
-    },
-    "indices": {
-      "title": "MySQL 索引管理",
-      "description": "MySQL 索引管理页面骨架已就绪，后续将补充索引查看与优化能力。",
-      "planTitle": "计划功能",
-      "itemList": "索引列表与筛选",
-      "itemDetail": "索引详情与状态",
-      "itemAnalyze": "索引建议与优化分析"
+    "tableManager": {
+      "databases": "数据库",
+      "createTable": "新建表",
+      "dropTable": "删除表",
+      "truncate": "清空数据",
+      "addColumn": "新增字段",
+      "editStructure": "编辑结构",
+      "dropColumn": "删除字段",
+      "columnName": "字段名",
+      "columnType": "字段类型",
+      "nullable": "允许 NULL",
+      "defaultValue": "默认值",
+      "extra": "额外属性",
+      "selectTableHint": "请在左侧选择一张数据表查看结构",
+      "executeSql": "执行 SQL",
+      "browseData": "浏览数据",
+      "viewStructure": "查看结构",
+      "dropDatabase": "删除数据库",
+      "refreshTables": "刷新",
+      "structure": "结构",
+      "data": "数据",
+      "selectTableDataHint": "双击左侧数据表浏览数据，或右键选择操作"
     }
   }
 }

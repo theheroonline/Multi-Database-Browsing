@@ -7,14 +7,21 @@ import IndexManager from "./modules/es/pages/IndexManager";
 import RestConsole from "./modules/es/pages/RestConsole";
 import SqlQuery from "./modules/es/pages/SqlQuery";
 import { pingCluster } from "./modules/es/services/client";
+import MysqlConnectionsPage from "./modules/mysql/pages/Connections";
+import MysqlSqlQuery from "./modules/mysql/pages/SqlQuery";
+import MysqlTableManager from "./modules/mysql/pages/TableManager";
+import { mysqlConnect, mysqlDisconnect, mysqlListDatabases, mysqlListTables } from "./modules/mysql/services/client";
 import { AppProvider, useAppContext } from "./state/AppContext";
+import { MysqlProvider, useMysqlContext } from "./state/MysqlContext";
 
 type ConnectionStatus = "success" | "idle" | "failed";
 
 function App() {
   return (
     <AppProvider>
-      <AppLayout />
+      <MysqlProvider>
+        <AppLayout />
+      </MysqlProvider>
     </AppProvider>
   );
 }
@@ -33,11 +40,37 @@ function AppLayout() {
     getConnectionById
   } = useAppContext();
 
+  const {
+    databases,
+    setDatabases,
+    tablesByDb,
+    setTablesByDb,
+    expandedDatabase,
+    setExpandedDatabase,
+    selectedDatabase,
+    setSelectedDatabase,
+    selectedTable,
+    setSelectedTable,
+    getMysqlConnectionById
+  } = useMysqlContext();
+
   const esProfiles = useMemo(
     () => state.profiles.filter((item) => (item.engine ?? "elasticsearch") === "elasticsearch"),
     [state.profiles]
   );
+  const mysqlProfiles = useMemo(
+    () => state.profiles.filter((item) => item.engine === "mysql"),
+    [state.profiles]
+  );
+  const allProfiles = useMemo(() => [...esProfiles, ...mysqlProfiles], [esProfiles, mysqlProfiles]);
+
+  const activeProfile = activeConnectionId
+    ? state.profiles.find((p) => p.id === activeConnectionId)
+    : null;
+  const activeEngine = activeProfile?.engine ?? "elasticsearch";
+
   const [esExpanded, setEsExpanded] = useState(true);
+  const [mysqlExpanded, setMysqlExpanded] = useState(true);
   const [focusedConnectionId, setFocusedConnectionId] = useState<string | undefined>(undefined);
   const [contextMenu, setContextMenu] = useState<{ connectionId: string; x: number; y: number } | null>(null);
   const [isConnectionActionPending, setIsConnectionActionPending] = useState(false);
@@ -52,12 +85,13 @@ function AppLayout() {
     }));
   };
 
-  const openConnectionConfig = (action: "add" | "edit" | "copy", connectionId?: string) => {
+  const openConnectionConfig = (engine: "elasticsearch" | "mysql", action: "add" | "edit" | "copy", connectionId?: string) => {
     const params = new URLSearchParams({ action });
     if (connectionId) {
       params.set("id", connectionId);
     }
-    navigate(`/connections?${params.toString()}`, {
+    const basePath = engine === "mysql" ? "/mysql/connections" : "/connections";
+    navigate(`${basePath}?${params.toString()}`, {
       state: { from: location.pathname }
     });
   };
@@ -68,7 +102,9 @@ function AppLayout() {
       if (isWorkspaceSuspended) {
         setConnectionActionError("");
         setIsWorkspaceSuspended(false);
-        await navigate("/data");
+        const profile = state.profiles.find((p) => p.id === value);
+        const targetRoute = profile?.engine === "mysql" ? "/mysql/tables" : "/data";
+        await navigate(targetRoute);
       }
       return;
     }
@@ -77,26 +113,60 @@ function AppLayout() {
     setConnectionActionError("");
     setContextMenu(null);
 
-    try {
-      const connection = getConnectionById(value);
-      if (!connection) {
-        throw new Error("CONNECTION_FAILED");
-      }
+    const profile = state.profiles.find((p) => p.id === value);
+    if (!profile) {
+      setIsConnectionActionPending(false);
+      setConnectionActionError(t("connections.connectionFailedSimple"));
+      return;
+    }
 
+    try {
       const currentStatus = connectionStatusById[value] ?? "idle";
       const shouldValidate = options?.forceValidate ?? currentStatus !== "success";
 
-      if (shouldValidate) {
-        await pingCluster(connection);
-      }
+      if (profile.engine === "mysql") {
+        // MySQL connection flow
+        const mysqlConn = getMysqlConnectionById(value);
+        if (!mysqlConn) throw new Error("CONNECTION_FAILED");
 
-      await setActiveConnection(value);
-      if (shouldValidate) {
-        await refreshIndices(connection);
+        if (shouldValidate) {
+          await mysqlConnect(mysqlConn);
+        }
+
+        await setActiveConnection(value);
+
+        // Load databases
+        try {
+          const dbs = await mysqlListDatabases(value);
+          setDatabases(dbs);
+        } catch {
+          setDatabases([]);
+        }
+        setTablesByDb({});
+        setExpandedDatabase(null);
+        setSelectedDatabase(undefined);
+        setSelectedTable(undefined);
+
+        markConnectionSuccess(value);
+        setIsWorkspaceSuspended(false);
+        await navigate("/mysql/tables");
+      } else {
+        // ES connection flow
+        const connection = getConnectionById(value);
+        if (!connection) throw new Error("CONNECTION_FAILED");
+
+        if (shouldValidate) {
+          await pingCluster(connection);
+        }
+
+        await setActiveConnection(value);
+        if (shouldValidate) {
+          await refreshIndices(connection);
+        }
+        markConnectionSuccess(value);
+        setIsWorkspaceSuspended(false);
+        await navigate("/data");
       }
-      markConnectionSuccess(value);
-      setIsWorkspaceSuspended(false);
-      await navigate("/data");
     } catch {
       setConnectionStatusById((prev) => ({
         ...prev,
@@ -117,10 +187,24 @@ function AppLayout() {
     setIsConnectionActionPending(true);
     setContextMenu(null);
     const currentId = activeConnectionId;
+    const currentProfile = state.profiles.find((p) => p.id === currentId);
 
     try {
+      // Disconnect MySQL pool if applicable
+      if (currentProfile?.engine === "mysql") {
+        try {
+          await mysqlDisconnect(currentId);
+        } catch {
+          // ignore disconnect errors
+        }
+      }
+
       await disconnectActiveConnection();
       setIsWorkspaceSuspended(false);
+      setTablesByDb({});
+      setExpandedDatabase(null);
+      setSelectedDatabase(undefined);
+      setSelectedTable(undefined);
       setConnectionStatusById((prev) => ({
         ...prev,
         [currentId]: "idle"
@@ -152,6 +236,48 @@ function AppLayout() {
     await deleteConnection(connectionId);
   };
 
+  const loadMysqlTables = async (database: string) => {
+    if (!activeConnectionId) return;
+    const profile = state.profiles.find((p) => p.id === activeConnectionId);
+    if (profile?.engine !== "mysql") return;
+
+    try {
+      const tables = await mysqlListTables(activeConnectionId, database);
+      setTablesByDb((prev) => ({
+        ...prev,
+        [database]: tables
+      }));
+    } catch {
+      setTablesByDb((prev) => ({
+        ...prev,
+        [database]: []
+      }));
+    }
+  };
+
+  const handleMysqlExpandDatabase = async (database: string) => {
+    if (expandedDatabase === database) {
+      setExpandedDatabase(null);
+      return;
+    }
+
+    setExpandedDatabase(database);
+    setSelectedDatabase(database);
+    if (!tablesByDb[database]) {
+      await loadMysqlTables(database);
+    }
+  };
+
+  const handleMysqlSelectTable = async (database: string, table: string, openData?: boolean) => {
+    setSelectedDatabase(database);
+    setSelectedTable(table);
+    if (openData) {
+      await navigate("/mysql/tables?tab=data");
+      return;
+    }
+    await navigate("/mysql/tables");
+  };
+
   useEffect(() => {
     if (!contextMenu) return;
 
@@ -168,19 +294,19 @@ function AppLayout() {
   }, [contextMenu]);
 
   useEffect(() => {
-    if (!focusedConnectionId && esProfiles.length > 0) {
-      setFocusedConnectionId(esProfiles[0]?.id);
+    if (!focusedConnectionId && allProfiles.length > 0) {
+      setFocusedConnectionId(allProfiles[0]?.id);
       return;
     }
-    if (focusedConnectionId && !esProfiles.some((item) => item.id === focusedConnectionId)) {
-      setFocusedConnectionId(esProfiles[0]?.id);
+    if (focusedConnectionId && !allProfiles.some((item) => item.id === focusedConnectionId)) {
+      setFocusedConnectionId(allProfiles[0]?.id);
     }
-  }, [focusedConnectionId, esProfiles]);
+  }, [focusedConnectionId, allProfiles]);
 
   useEffect(() => {
     setConnectionStatusById((prev) => {
       const next: Record<string, ConnectionStatus> = {};
-      esProfiles.forEach((item) => {
+      allProfiles.forEach((item) => {
         next[item.id] = prev[item.id] ?? "idle";
       });
 
@@ -198,7 +324,7 @@ function AppLayout() {
 
       return prev;
     });
-  }, [esProfiles]);
+  }, [allProfiles]);
 
   useEffect(() => {
     if (!activeConnectionId) return;
@@ -211,8 +337,85 @@ function AppLayout() {
     setIsWorkspaceSuspended(false);
   }, [activeConnectionId, isWorkspaceSuspended]);
 
-  const showConnectionsTab = location.pathname.startsWith("/connections");
+  const showEsConnectionsTab = location.pathname.startsWith("/connections");
+  const showMysqlConnectionsTab = location.pathname.startsWith("/mysql/connections");
+  const showConnectionsTab = showEsConnectionsTab || showMysqlConnectionsTab;
   const canShowWorkspace = (Boolean(activeConnectionId) && !isWorkspaceSuspended) || showConnectionsTab;
+
+  const isEsWorkspace = activeEngine === "elasticsearch" || showEsConnectionsTab;
+  const isMysqlWorkspace = activeEngine === "mysql" || showMysqlConnectionsTab;
+
+  // Shared connection tree item renderer
+  const renderConnectionItem = (profile: typeof esProfiles[0]) => {
+    const status = connectionStatusById[profile.id] ?? "idle";
+    return (
+      <div
+        key={profile.id}
+        className={`mdb-tree-item ${focusedConnectionId === profile.id ? "active" : ""}`}
+        onClick={() => {
+          setFocusedConnectionId(profile.id);
+          if (activeConnectionId === profile.id) {
+            if (isWorkspaceSuspended) {
+              handleConnectionChange(profile.id, { forceValidate: false });
+            }
+            return;
+          }
+          if (status === "success") {
+            handleConnectionChange(profile.id, { forceValidate: false });
+          }
+        }}
+        onDoubleClick={() => {
+          if (activeConnectionId === profile.id) {
+            if (isWorkspaceSuspended) {
+              handleConnectionChange(profile.id, { forceValidate: false });
+            }
+            return;
+          }
+          if (status !== "success") {
+            handleConnectionChange(profile.id, { forceValidate: true });
+          }
+        }}
+        onContextMenu={(event) => handleConnectionContextMenu(event, profile.id)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            if (activeConnectionId === profile.id) {
+              if (isWorkspaceSuspended) {
+                handleConnectionChange(profile.id, { forceValidate: false });
+              }
+              return;
+            }
+            if (status === "success") {
+              handleConnectionChange(profile.id, { forceValidate: false });
+            }
+          }
+        }}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+          <span
+            style={{
+              width: "8px",
+              height: "8px",
+              borderRadius: "50%",
+              flexShrink: 0,
+              background: status === "success" ? "#22c55e" : status === "failed" ? "#ef4444" : "#9ca3af"
+            }}
+          />
+          <span className="name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {profile.name}
+          </span>
+        </span>
+        {activeConnectionId === profile.id && (
+          <span style={{ fontSize: "11px", background: "#dcfce7", color: "#166534", padding: "2px 6px", borderRadius: "4px", flexShrink: 0 }}>
+            {t("connections.currentInUse")}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="mdb-layout">
@@ -242,6 +445,7 @@ function AppLayout() {
         <aside className="mdb-sidebar">
           <div className="mdb-sidebar-title">{t("sidebar.connection")}</div>
 
+          {/* Elasticsearch connections */}
           <div className="mdb-tree-group">
             <div className="mdb-tree-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
               <button
@@ -256,7 +460,7 @@ function AppLayout() {
               <button
                 type="button"
                 className="btn btn-sm btn-ghost"
-                onClick={() => openConnectionConfig("add")}
+                onClick={() => openConnectionConfig("elasticsearch", "add")}
                 title={t("connections.createConnection")}
                 style={{ padding: "2px 8px", minWidth: "28px" }}
               >
@@ -266,91 +470,131 @@ function AppLayout() {
 
             {esExpanded && (
               <div className="mdb-tree-items" style={{ paddingLeft: "18px", marginTop: "4px" }}>
-                {esProfiles.map((profile) => {
-                  const status = connectionStatusById[profile.id] ?? "idle";
+                {esProfiles.map(renderConnectionItem)}
+                {esProfiles.length === 0 && <div className="mdb-tree-empty">{t("connections.noConnections")}</div>}
+              </div>
+            )}
+          </div>
+
+          {/* MySQL connections */}
+          <div className="mdb-tree-group" style={{ marginTop: "8px" }}>
+            <div className="mdb-tree-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setMysqlExpanded((prev) => !prev)}
+                style={{ padding: "2px 6px", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", fontWeight: 500 }}
+              >
+                <span>{mysqlExpanded ? "▾" : "▸"}</span>
+                <span>MySQL</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => openConnectionConfig("mysql", "add")}
+                title={t("connections.createConnection")}
+                style={{ padding: "2px 8px", minWidth: "28px" }}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={async () => {
+                  if (!activeConnectionId) return;
+                  const profile = state.profiles.find((p) => p.id === activeConnectionId);
+                  if (profile?.engine !== "mysql") return;
+                  try {
+                    const dbs = await mysqlListDatabases(activeConnectionId);
+                    setDatabases(dbs);
+                  } catch {
+                    setDatabases([]);
+                  }
+                }}
+                title={t("common.refresh")}
+                style={{ padding: "2px 8px", minWidth: "28px" }}
+              >
+                ↻
+              </button>
+            </div>
+
+            {mysqlExpanded && (
+              <div className="mdb-tree-items" style={{ paddingLeft: "18px", marginTop: "4px" }}>
+                {mysqlProfiles.map((profile) => {
+                  const isActiveMysql = activeConnectionId === profile.id && profile.engine === "mysql";
+
                   return (
-                    <div
-                      key={profile.id}
-                      className={`mdb-tree-item ${focusedConnectionId === profile.id ? "active" : ""}`}
-                      onClick={() => {
-                        setFocusedConnectionId(profile.id);
-                        if (activeConnectionId === profile.id) {
-                          if (isWorkspaceSuspended) {
-                            handleConnectionChange(profile.id, { forceValidate: false });
-                          }
-                          return;
-                        }
-                        if (status === "success") {
-                          handleConnectionChange(profile.id, { forceValidate: false });
-                        }
-                      }}
-                      onDoubleClick={() => {
-                        if (activeConnectionId === profile.id) {
-                          if (isWorkspaceSuspended) {
-                            handleConnectionChange(profile.id, { forceValidate: false });
-                          }
-                          return;
-                        }
-                        if (status !== "success") {
-                          handleConnectionChange(profile.id, { forceValidate: true });
-                        }
-                      }}
-                      onContextMenu={(event) => handleConnectionContextMenu(event, profile.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          if (activeConnectionId === profile.id) {
-                            if (isWorkspaceSuspended) {
-                              handleConnectionChange(profile.id, { forceValidate: false });
-                            }
-                            return;
-                          }
-                          if (status === "success") {
-                            handleConnectionChange(profile.id, { forceValidate: false });
-                          }
-                        }
-                      }}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}
-                    >
-                      <span style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                        <span
-                          style={{
-                            width: "8px",
-                            height: "8px",
-                            borderRadius: "50%",
-                            flexShrink: 0,
-                            background: status === "success" ? "#22c55e" : status === "failed" ? "#ef4444" : "#9ca3af"
-                          }}
-                        />
-                        <span className="name" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {profile.name}
-                        </span>
-                      </span>
-                      {activeConnectionId === profile.id && (
-                        <span style={{ fontSize: "11px", background: "#dcfce7", color: "#166534", padding: "2px 6px", borderRadius: "4px", flexShrink: 0 }}>
-                          {t("connections.currentInUse")}
-                        </span>
+                    <div key={profile.id}>
+                      {renderConnectionItem(profile)}
+                      {isActiveMysql && databases.length > 0 && (
+                        <div style={{ paddingLeft: "12px", marginTop: "2px", marginBottom: "4px" }}>
+                          {databases.map((database) => {
+                            const expanded = expandedDatabase === database;
+                            const tables = tablesByDb[database] ?? [];
+
+                            return (
+                              <div key={`${profile.id}-${database}`}>
+                                <div
+                                  className="mdb-tree-item"
+                                  style={{
+                                    marginTop: "2px",
+                                    padding: "4px 8px",
+                                    fontSize: "12px",
+                                    background: selectedDatabase === database && !selectedTable ? "#d6e3f9" : undefined
+                                  }}
+                                  onClick={() => handleMysqlExpandDatabase(database)}
+                                >
+                                  <span style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+                                    <span>{expanded ? "▾" : "▸"}</span>
+                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{database}</span>
+                                  </span>
+                                  {tablesByDb[database] && <span className="muted" style={{ fontSize: "11px" }}>{tables.length}</span>}
+                                </div>
+
+                                {expanded && (
+                                  <div style={{ paddingLeft: "18px" }}>
+                                    {tables.map((table) => (
+                                      <div
+                                        key={`${profile.id}-${database}-${table}`}
+                                        className={`mdb-tree-item ${selectedDatabase === database && selectedTable === table ? "active" : ""}`}
+                                        style={{ marginTop: "2px", padding: "4px 8px", fontSize: "12px" }}
+                                        onClick={() => handleMysqlSelectTable(database, table)}
+                                        onDoubleClick={() => handleMysqlSelectTable(database, table, true)}
+                                      >
+                                        {table}
+                                      </div>
+                                    ))}
+
+                                    {tablesByDb[database] && tables.length === 0 && (
+                                      <div className="mdb-tree-empty" style={{ padding: "4px 8px" }}>{t("mysql.data.noTables")}</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   );
                 })}
-
-                {esProfiles.length === 0 && <div className="mdb-tree-empty">{t("connections.noConnections")}</div>}
-                {connectionActionError && (
-                  <div className="text-danger" style={{ fontSize: "12px", marginTop: "6px", paddingLeft: "4px" }}>
-                    {connectionActionError}
-                  </div>
-                )}
+                {mysqlProfiles.length === 0 && <div className="mdb-tree-empty">{t("connections.noConnections")}</div>}
               </div>
             )}
           </div>
+
+          {/* Connection action error */}
+          {connectionActionError && (
+            <div className="text-danger" style={{ fontSize: "12px", marginTop: "6px", padding: "0 12px" }}>
+              {connectionActionError}
+            </div>
+          )}
         </aside>
 
         <main className="mdb-workspace">
           <div style={{ display: canShowWorkspace ? "block" : "none" }}>
-            <div className="mdb-tabs">
+            {/* ES tabs */}
+            <div className="mdb-tabs" style={{ display: isEsWorkspace ? "flex" : "none" }}>
               <NavLink to="/data" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
                 {t("sidebar.dataBrowser")}
               </NavLink>
@@ -363,22 +607,40 @@ function AppLayout() {
               <NavLink to="/indices" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
                 {t("sidebar.indexManager")}
               </NavLink>
-              {showConnectionsTab && (
+              {showEsConnectionsTab && (
                 <NavLink to="/connections" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
                   {t("sidebar.connections")}
                 </NavLink>
               )}
             </div>
 
+            {/* MySQL tabs */}
+            <div className="mdb-tabs" style={{ display: isMysqlWorkspace ? "flex" : "none" }}>
+              <NavLink to="/mysql/tables" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
+                {t("mysql.sidebar.tableManager")}
+              </NavLink>
+              <NavLink to="/mysql/sql" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
+                {t("mysql.sidebar.sqlQuery")}
+              </NavLink>
+              {showMysqlConnectionsTab && (
+                <NavLink to="/mysql/connections" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
+                  {t("sidebar.connections")}
+                </NavLink>
+              )}
+            </div>
+
             <section className="mdb-content">
-              {/* Routes 仅处理重定向和连接配置页 */}
+              {/* Routes for redirects and connection pages */}
               <Routes>
                 <Route path="/" element={<Navigate to="/data" replace />} />
                 <Route path="/connections" element={<EsConnectionsPage />} />
                 <Route path="/connections/es" element={<Navigate to="/connections?action=add" replace />} />
+                <Route path="/mysql" element={<Navigate to="/mysql/tables" replace />} />
+                <Route path="/mysql/connections" element={<MysqlConnectionsPage />} />
                 <Route path="*" element={null} />
               </Routes>
-              {/* 工作区页面始终挂载，通过 display 控制可见性，避免切换 tab 时状态丢失 */}
+
+              {/* ES pages - always mounted, display toggled */}
               <div style={{ display: location.pathname === "/data" ? undefined : "none" }}>
                 <DataBrowser />
               </div>
@@ -390,6 +652,14 @@ function AppLayout() {
               </div>
               <div style={{ display: location.pathname === "/indices" ? undefined : "none" }}>
                 <IndexManager />
+              </div>
+
+              {/* MySQL pages - always mounted, display toggled */}
+              <div style={{ display: location.pathname === "/mysql/sql" ? undefined : "none" }}>
+                <MysqlSqlQuery />
+              </div>
+              <div style={{ display: location.pathname === "/mysql/tables" ? undefined : "none" }}>
+                <MysqlTableManager />
               </div>
             </section>
           </div>
@@ -456,8 +726,10 @@ function AppLayout() {
             className="btn btn-sm btn-ghost"
             style={{ width: "100%", justifyContent: "flex-start" }}
             onClick={() => {
+              const profile = state.profiles.find((p) => p.id === contextMenu.connectionId);
+              const engine = profile?.engine ?? "elasticsearch";
               setContextMenu(null);
-              openConnectionConfig("edit", contextMenu.connectionId);
+              openConnectionConfig(engine, "edit", contextMenu.connectionId);
             }}
           >
             {t("common.edit")}
@@ -467,8 +739,10 @@ function AppLayout() {
             className="btn btn-sm btn-ghost"
             style={{ width: "100%", justifyContent: "flex-start" }}
             onClick={() => {
+              const profile = state.profiles.find((p) => p.id === contextMenu.connectionId);
+              const engine = profile?.engine ?? "elasticsearch";
               setContextMenu(null);
-              openConnectionConfig("copy", contextMenu.connectionId);
+              openConnectionConfig(engine, "copy", contextMenu.connectionId);
             }}
           >
             {t("common.copy")}
