@@ -159,6 +159,14 @@
     "switchLanguage": "{{language}}",
     "switchLanguageTitle": "切换为{{language}}"
   },
+  "errorLog": {
+    "button": "错误日志",
+    "open": "打开公共错误日志",
+    "title": "公共错误日志",
+    "empty": "当前还没有记录到错误。",
+    "clear": "清空日志",
+    "total": "共 {{count}} 条错误记录"
+  },
   "connections": {
     "title": "连接配置",
     "createConnection": "新建连接",
@@ -304,7 +312,8 @@
     "sidebar": {
       "dataBrowser": "数据浏览",
       "sqlQuery": "SQL 查询",
-      "tableManager": "表管理"
+      "tableManager": "表管理",
+      "tableWorkspace": "表详情"
     },
     "query": {
       "title": "MySQL 查询",
@@ -332,7 +341,14 @@
     },
     "tableManager": {
       "databases": "数据库",
+      "tables": "表",
+      "openDatabase": "打开数据库",
+      "closeDatabase": "关闭数据库",
+      "createDatabase": "新建库",
       "createTable": "新建表",
+      "openTable": "打开表",
+      "designTable": "设计表",
+      "copyTable": "复制表",
       "dropTable": "删除表",
       "truncate": "清空数据",
       "addColumn": "新增字段",
@@ -351,7 +367,31 @@
       "refreshTables": "刷新",
       "structure": "结构",
       "data": "数据",
-      "selectTableDataHint": "双击左侧数据表浏览数据，或右键选择操作"
+      "selectTableDataHint": "双击表打开，右键可以执行更多操作",
+      "openDatabaseHint": "请先在左侧双击一个数据库，右侧会显示该数据库下的表列表。",
+      "tableOpenedHint": "当前已打开数据表，可切换结构和数据视图。",
+      "backToTables": "返回表列表",
+      "filterData": "筛选",
+      "sortData": "排序",
+      "filterColumn": "筛选字段",
+      "filterValue": "筛选值",
+      "sortColumn": "排序字段",
+      "sortDirection": "排序方向",
+      "clearFilter": "清除筛选",
+      "clearSort": "清除排序",
+      "copyCellValue": "复制单元格值",
+      "filterByCurrentValue": "按当前值筛选",
+      "filterSummary": "筛选：{{column}} = {{value}}",
+      "sortSummary": "排序：{{column}} {{direction}}",
+      "noFilterApplied": "未设置筛选",
+      "noSortApplied": "未设置排序",
+      "closeCurrentTab": "关闭当前",
+      "closeOtherTabs": "关闭其他",
+      "closeAllTabs": "关闭全部",
+      "tableCount": "共 {{count}} 张表",
+      "copyTablePrompt": "请输入复制后的新表名",
+      "createDatabasePrompt": "请输入新数据库名称",
+      "dropDatabaseConfirm": "确定删除数据库 {{name}} 吗？此操作不可恢复。"
     }
   }
 }

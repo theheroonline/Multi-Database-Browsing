@@ -3,6 +3,20 @@ import { createContext, useCallback, useContext, useMemo, useState } from "react
 import type { MysqlConnection } from "../modules/mysql/types";
 import { useAppContext } from "./AppContext";
 
+export interface MysqlOpenedTable {
+  database: string;
+  table: string;
+  view: "data" | "structure";
+  filterColumn?: string;
+  filterValue?: string;
+  sortColumn?: string;
+  sortDirection?: "asc" | "desc";
+}
+
+export function getMysqlOpenedTableKey(database: string, table: string) {
+  return `${database}::${table}`;
+}
+
 interface MysqlContextValue {
   activeMysqlConnection: MysqlConnection | null;
   databases: string[];
@@ -15,6 +29,10 @@ interface MysqlContextValue {
   setSelectedDatabase: (db: string | undefined) => void;
   selectedTable: string | undefined;
   setSelectedTable: (table: string | undefined) => void;
+  openedTables: MysqlOpenedTable[];
+  setOpenedTables: Dispatch<SetStateAction<MysqlOpenedTable[]>>;
+  activeOpenedTableKey: string | null;
+  setActiveOpenedTableKey: (key: string | null) => void;
   getMysqlConnectionById: (id: string) => MysqlConnection | null;
 }
 
@@ -27,6 +45,8 @@ export function MysqlProvider({ children }: { children: ReactNode }) {
   const [expandedDatabase, setExpandedDatabase] = useState<string | null>(null);
   const [selectedDatabase, setSelectedDatabase] = useState<string | undefined>();
   const [selectedTable, setSelectedTable] = useState<string | undefined>();
+  const [openedTables, setOpenedTables] = useState<MysqlOpenedTable[]>([]);
+  const [activeOpenedTableKey, setActiveOpenedTableKey] = useState<string | null>(null);
 
   const getMysqlConnectionById = useCallback(
     (id: string): MysqlConnection | null => {
@@ -67,6 +87,10 @@ export function MysqlProvider({ children }: { children: ReactNode }) {
       setSelectedDatabase,
       selectedTable,
       setSelectedTable,
+      openedTables,
+      setOpenedTables,
+      activeOpenedTableKey,
+      setActiveOpenedTableKey,
       getMysqlConnectionById,
     }),
     [
@@ -76,6 +100,8 @@ export function MysqlProvider({ children }: { children: ReactNode }) {
       expandedDatabase,
       selectedDatabase,
       selectedTable,
+      openedTables,
+      activeOpenedTableKey,
       getMysqlConnectionById
     ]
   );

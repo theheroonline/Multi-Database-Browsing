@@ -1,7 +1,8 @@
 import { type MouseEvent, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router-dom";
-import { useMysqlContext } from "../../../state/MysqlContext";
+import { useLocation, useNavigate } from "react-router-dom";
+import { logError } from "../../../lib/errorLog";
+import { getMysqlOpenedTableKey, type MysqlOpenedTable, useMysqlContext } from "../../../state/MysqlContext";
 import { mysqlDescribeTable, mysqlListDatabases, mysqlListTables, mysqlQuery } from "../services/client";
 import type { ColumnMeta } from "../types";
 
@@ -36,11 +37,18 @@ const defaultDataState: DataState = {
 type RightPanelTab = "structure" | "data";
 
 interface TreeContextMenu {
-  type: "database" | "table";
   db: string;
-  table?: string;
+  table: string;
   x: number;
   y: number;
+}
+
+interface RowContextMenu {
+  x: number;
+  y: number;
+  rowIndex: number;
+  column: string;
+  value: unknown;
 }
 
 type ColumnEditMode = "add" | "edit";
@@ -56,19 +64,23 @@ interface ColumnEditForm {
 export default function MysqlTableManager() {
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const {
     activeMysqlConnection,
+    setDatabases,
+    tablesByDb,
+    setTablesByDb,
+    expandedDatabase,
+    setExpandedDatabase,
     selectedDatabase,
     selectedTable,
     setSelectedDatabase,
     setSelectedTable,
-    setDatabases: setContextDatabases,
-    setTablesByDb: setContextTablesByDb
+    openedTables,
+    setOpenedTables,
+    activeOpenedTableKey,
+    setActiveOpenedTableKey
   } = useMysqlContext();
-
-  const [databases, setDatabases] = useState<string[]>([]);
-  const [tablesMap, setTablesMap] = useState<Record<string, string[]>>({});
-  const [expandedDb, setExpandedDb] = useState<string | null>(null);
   const [selectedTableInfo, setSelectedTableInfo] = useState<TableInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -78,13 +90,22 @@ export default function MysqlTableManager() {
 
   // Tree context menu
   const [treeContextMenu, setTreeContextMenu] = useState<TreeContextMenu | null>(null);
+  const [rowContextMenu, setRowContextMenu] = useState<RowContextMenu | null>(null);
 
   // Data browsing state
   const [dataState, setDataState] = useState<DataState>(defaultDataState);
   const [dataColumnMeta, setDataColumnMeta] = useState<ColumnMeta[]>([]);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [editingRow, setEditingRow] = useState<{ index: number; json: string } | null>(null);
   const [editError, setEditError] = useState("");
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [sortModalOpen, setSortModalOpen] = useState(false);
+  const [filterDraft, setFilterDraft] = useState({ column: "", value: "" });
+  const [sortDraft, setSortDraft] = useState<{ column: string; direction: "asc" | "desc" }>({
+    column: "",
+    direction: "asc"
+  });
 
   // SQL execution modal state
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
@@ -106,6 +127,14 @@ export default function MysqlTableManager() {
   const [columnEditError, setColumnEditError] = useState("");
 
   const connectionId = activeMysqlConnection?.id;
+  const isTableWorkspace = location.pathname === "/mysql/table";
+  const activeOpenedTable = activeOpenedTableKey
+    ? openedTables.find((item) => getMysqlOpenedTableKey(item.database, item.table) === activeOpenedTableKey) ?? null
+    : null;
+
+  const escapeSqlIdentifier = (value: string) => `\`${value.replace(/`/g, "``")}\``;
+
+  const escapeSqlLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
 
   // ─── Database / Table tree logic ───
 
@@ -115,8 +144,7 @@ export default function MysqlTableManager() {
     try {
       const dbs = await mysqlListDatabases(connectionId);
       setDatabases(dbs);
-      setContextDatabases(dbs);
-      setContextTablesByDb((prev) => {
+      setTablesByDb((prev) => {
         const next: Record<string, string[]> = {};
         dbs.forEach((db) => {
           if (prev[db]) {
@@ -125,131 +153,206 @@ export default function MysqlTableManager() {
         });
         return next;
       });
+      if (expandedDatabase && !dbs.includes(expandedDatabase)) {
+        setExpandedDatabase(null);
+        setSelectedDatabase(undefined);
+        setSelectedTable(undefined);
+        setSelectedTableInfo(null);
+        setDataState(defaultDataState);
+      }
+      const remainingOpenedTables = openedTables.filter((item) => dbs.includes(item.database));
+      if (remainingOpenedTables.length !== openedTables.length) {
+        setOpenedTables(remainingOpenedTables);
+        const nextActiveKey = activeOpenedTableKey && remainingOpenedTables.some((item) => getMysqlOpenedTableKey(item.database, item.table) === activeOpenedTableKey)
+          ? activeOpenedTableKey
+          : null;
+        setActiveOpenedTableKey(nextActiveKey);
+        setSelectedTableInfo(null);
+        setDataState(defaultDataState);
+        if (location.pathname === "/mysql/table") {
+          const hasActive = activeOpenedTableKey && remainingOpenedTables.some((item) => getMysqlOpenedTableKey(item.database, item.table) === activeOpenedTableKey);
+          if (!hasActive) {
+            void navigate("/mysql/tables");
+          }
+        }
+      }
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.refreshDatabases",
+        message: "Failed to refresh MySQL database tree"
+      });
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [connectionId, setContextDatabases, setContextTablesByDb]);
+  }, [activeOpenedTableKey, connectionId, expandedDatabase, location.pathname, navigate, openedTables, setActiveOpenedTableKey, setDatabases, setExpandedDatabase, setOpenedTables, setSelectedDatabase, setSelectedTable, setTablesByDb]);
 
   useEffect(() => {
     refreshDatabases();
   }, [refreshDatabases]);
 
-  const handleExpandDb = async (db: string) => {
-    if (expandedDb === db) {
-      setExpandedDb(null);
-      return;
-    }
-    setExpandedDb(db);
-
-    if (tablesMap[db]) return;
-    if (!connectionId) return;
-
-    try {
-      const tbls = await mysqlListTables(connectionId, db);
-      setTablesMap((prev) => ({ ...prev, [db]: tbls }));
-    } catch {
-      setTablesMap((prev) => ({ ...prev, [db]: [] }));
-    }
-  };
-
-  const refreshTablesForDb = async (db: string) => {
+  const refreshTablesForDb = useCallback(async (db: string) => {
     if (!connectionId) return;
     try {
       const tbls = await mysqlListTables(connectionId, db);
-      setTablesMap((prev) => ({ ...prev, [db]: tbls }));
-    } catch {
-      setTablesMap((prev) => ({ ...prev, [db]: [] }));
+      setTablesByDb((prev) => ({ ...prev, [db]: tbls }));
+      if (selectedTableInfo?.database === db && selectedTableInfo.table && !tbls.includes(selectedTableInfo.table)) {
+        setSelectedTableInfo(null);
+        setDataState(defaultDataState);
+      }
+      if (selectedDatabase === db && selectedTable && !tbls.includes(selectedTable)) {
+        setSelectedTable(undefined);
+      }
+      const remainingOpenedTables = openedTables.filter((item) => item.database !== db || tbls.includes(item.table));
+      if (remainingOpenedTables.length !== openedTables.length) {
+        setOpenedTables(remainingOpenedTables);
+        const nextActiveKey = activeOpenedTableKey && remainingOpenedTables.some((item) => getMysqlOpenedTableKey(item.database, item.table) === activeOpenedTableKey)
+          ? activeOpenedTableKey
+          : null;
+        setActiveOpenedTableKey(nextActiveKey);
+        setSelectedTableInfo(null);
+        setDataState(defaultDataState);
+        if (location.pathname === "/mysql/table") {
+          const hasActive = activeOpenedTableKey && remainingOpenedTables.some((item) => getMysqlOpenedTableKey(item.database, item.table) === activeOpenedTableKey);
+          if (!hasActive) {
+            void navigate("/mysql/tables");
+          }
+        }
+      }
+    } catch (error) {
+      logError(error, {
+        source: "mysqlTableManager.refreshTables",
+        message: `Failed to refresh tables for database ${db}`
+      });
+      setTablesByDb((prev) => ({ ...prev, [db]: [] }));
     }
+  }, [activeOpenedTableKey, connectionId, location.pathname, navigate, openedTables, selectedDatabase, selectedTable, selectedTableInfo, setActiveOpenedTableKey, setOpenedTables, setSelectedTable, setTablesByDb]);
+
+  const loadTableInfo = useCallback(async (db: string, table: string) => {
+    const [columns, countResult] = await Promise.all([
+      mysqlDescribeTable(connectionId!, db, table),
+      mysqlQuery(connectionId!, `SELECT COUNT(*) as cnt FROM \`${db}\`.\`${table}\``)
+    ]);
+
+    const rowCount = countResult.isResultSet && countResult.rows.length > 0
+      ? Number(countResult.rows[0][0]) || 0
+      : 0;
+
+    return { columns, rowCount };
+  }, [connectionId]);
+
+  const handleSelectTable = (db: string, table: string) => {
+    setSelectedDatabase(db);
+    setSelectedTable(table);
   };
 
-  // ─── Select table (show structure) ───
-
-  const handleSelectTable = async (db: string, table: string) => {
+  const handleOpenTable = async (db: string, table: string, targetTab: RightPanelTab) => {
     if (!connectionId) return;
 
     setSelectedDatabase(db);
     setSelectedTable(table);
-
     setSelectedTableInfo({ database: db, table, loading: true });
-    setRightPanelTab("structure");
+    setRightPanelTab(targetTab);
 
     try {
-      const [columns, countResult] = await Promise.all([
-        mysqlDescribeTable(connectionId, db, table),
-        mysqlQuery(connectionId, `SELECT COUNT(*) as cnt FROM \`${db}\`.\`${table}\``)
-      ]);
-
-      const rowCount = countResult.isResultSet && countResult.rows.length > 0
-        ? Number(countResult.rows[0][0]) || 0
-        : 0;
-
+      const { columns, rowCount } = await loadTableInfo(db, table);
       setSelectedTableInfo({ database: db, table, columns, rowCount, loading: false });
+      setDataColumnMeta(columns);
+
+      if (targetTab === "data") {
+        await fetchData(db, table, 1, defaultDataState.pageSize);
+      } else {
+        setDataState(defaultDataState);
+      }
     } catch (err) {
+      logError(err, {
+        source: targetTab === "data" ? "mysqlTableManager.openTableData" : "mysqlTableManager.openTableStructure",
+        message: `Failed to open table ${db}.${table}`
+      });
       setSelectedTableInfo({ database: db, table, loading: false });
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  // ─── Browse data (show data tab) ───
+  const setOpenedTableView = useCallback((db: string, table: string, view: RightPanelTab) => {
+    const nextKey = getMysqlOpenedTableKey(db, table);
+    setOpenedTables((prev) => prev.map((item) => (
+      getMysqlOpenedTableKey(item.database, item.table) === nextKey ? { ...item, view } : item
+    )));
+  }, [setOpenedTables]);
 
-  const handleBrowseData = async (db: string, table: string) => {
-    if (!connectionId) return;
+  const updateOpenedTableQueryState = useCallback(
+    (
+      db: string,
+      table: string,
+      next: Partial<Pick<MysqlOpenedTable, "filterColumn" | "filterValue" | "sortColumn" | "sortDirection">>
+    ) => {
+      const nextKey = getMysqlOpenedTableKey(db, table);
+      setOpenedTables((prev) => prev.map((item) => (
+        getMysqlOpenedTableKey(item.database, item.table) === nextKey
+          ? { ...item, ...next }
+          : item
+      )));
+    },
+    [setOpenedTables]
+  );
 
+  const openTableWorkspace = async (db: string, table: string, targetTab: RightPanelTab) => {
+    const nextKey = getMysqlOpenedTableKey(db, table);
     setSelectedDatabase(db);
     setSelectedTable(table);
-
-    // Select the table info first if not already selected
-    if (selectedTableInfo?.database !== db || selectedTableInfo?.table !== table) {
-      setSelectedTableInfo({ database: db, table, loading: true });
-      try {
-        const [columns, countResult] = await Promise.all([
-          mysqlDescribeTable(connectionId, db, table),
-          mysqlQuery(connectionId, `SELECT COUNT(*) as cnt FROM \`${db}\`.\`${table}\``)
-        ]);
-        const rowCount = countResult.isResultSet && countResult.rows.length > 0
-          ? Number(countResult.rows[0][0]) || 0
-          : 0;
-        setSelectedTableInfo({ database: db, table, columns, rowCount, loading: false });
-      } catch (err) {
-        setSelectedTableInfo({ database: db, table, loading: false });
-        setError(err instanceof Error ? err.message : String(err));
+    setOpenedTables((prev) => {
+      const existing = prev.find((item) => getMysqlOpenedTableKey(item.database, item.table) === nextKey);
+      if (existing) {
+        return prev.map((item) => getMysqlOpenedTableKey(item.database, item.table) === nextKey ? { ...item, view: targetTab } : item);
       }
-    }
+      return [...prev, { database: db, table, view: targetTab }];
+    });
+    setActiveOpenedTableKey(nextKey);
+    await navigate("/mysql/table");
+  };
 
-    setRightPanelTab("data");
+  const handleBrowseData = async (db: string, table: string) => {
+    await openTableWorkspace(db, table, "data");
+  };
 
-    // Fetch column meta for data editing
-    try {
-      const meta = await mysqlDescribeTable(connectionId, db, table);
-      setDataColumnMeta(meta);
-    } catch {
-      setDataColumnMeta([]);
-    }
-
-    // Fetch first page of data
-    fetchData(db, table, 1, defaultDataState.pageSize);
+  const handleDesignTable = async (db: string, table: string) => {
+    await openTableWorkspace(db, table, "structure");
   };
 
   useEffect(() => {
-    if (!connectionId) return;
+    if (!isTableWorkspace || !activeOpenedTable) return;
+    void handleOpenTable(activeOpenedTable.database, activeOpenedTable.table, activeOpenedTable.view);
+  }, [activeOpenedTable, isTableWorkspace]);
 
-    if (!selectedDatabase || !selectedTable) {
+  useEffect(() => {
+    if (!connectionId) {
       setSelectedTableInfo(null);
       setDataState(defaultDataState);
+      setDataColumnMeta([]);
       return;
     }
 
-    const params = new URLSearchParams(location.search);
-    const tab = params.get("tab");
-    if (tab === "data") {
-      handleBrowseData(selectedDatabase, selectedTable);
+    if (!expandedDatabase && !activeOpenedTable) {
+      setSelectedTableInfo(null);
+      setDataState(defaultDataState);
+      setDataColumnMeta([]);
+      setSelectedTable(undefined);
       return;
     }
 
-    handleSelectTable(selectedDatabase, selectedTable);
-  }, [connectionId, selectedDatabase, selectedTable, location.search]);
+    if (expandedDatabase && !tablesByDb[expandedDatabase]) {
+      refreshTablesForDb(expandedDatabase);
+    }
+
+    if (selectedTableInfo && location.pathname !== "/mysql/table" && selectedTableInfo.database !== expandedDatabase) {
+      setSelectedTableInfo(null);
+      setDataState(defaultDataState);
+      setDataColumnMeta([]);
+      setSelectedTable(undefined);
+      setRightPanelTab("structure");
+    }
+  }, [activeOpenedTable, connectionId, expandedDatabase, location.pathname, refreshTablesForDb, selectedTableInfo, setSelectedTable, tablesByDb]);
 
   const fetchData = useCallback(async (
     db?: string,
@@ -264,13 +367,40 @@ export default function MysqlTableManager() {
     const currentPage = page ?? dataState.page;
     const currentSize = pageSize ?? dataState.pageSize;
     const offset = (currentPage - 1) * currentSize;
+    const currentFilterColumn = db && table && activeOpenedTable?.database === db && activeOpenedTable?.table === table
+      ? activeOpenedTable.filterColumn
+      : selectedTableInfo?.database === targetDb && selectedTableInfo?.table === targetTable
+        ? activeOpenedTable?.filterColumn
+        : undefined;
+    const currentFilterValue = db && table && activeOpenedTable?.database === db && activeOpenedTable?.table === table
+      ? activeOpenedTable.filterValue
+      : selectedTableInfo?.database === targetDb && selectedTableInfo?.table === targetTable
+        ? activeOpenedTable?.filterValue
+        : undefined;
+    const currentSortColumn = db && table && activeOpenedTable?.database === db && activeOpenedTable?.table === table
+      ? activeOpenedTable.sortColumn
+      : selectedTableInfo?.database === targetDb && selectedTableInfo?.table === targetTable
+        ? activeOpenedTable?.sortColumn
+        : undefined;
+    const currentSortDirection = db && table && activeOpenedTable?.database === db && activeOpenedTable?.table === table
+      ? activeOpenedTable.sortDirection
+      : selectedTableInfo?.database === targetDb && selectedTableInfo?.table === targetTable
+        ? activeOpenedTable?.sortDirection
+        : undefined;
+
+    const whereClause = currentFilterColumn && currentFilterValue !== undefined && currentFilterValue !== ""
+      ? ` WHERE ${escapeSqlIdentifier(currentFilterColumn)} ${/^null$/i.test(currentFilterValue) ? "IS NULL" : `= ${escapeSqlLiteral(currentFilterValue)}`}`
+      : "";
+    const orderClause = currentSortColumn
+      ? ` ORDER BY ${escapeSqlIdentifier(currentSortColumn)} ${(currentSortDirection ?? "asc").toUpperCase()}`
+      : "";
 
     setDataState((prev) => ({ ...prev, loading: true, error: "" }));
 
     try {
       const countResult = await mysqlQuery(
         connectionId,
-        `SELECT COUNT(*) as cnt FROM \`${targetDb}\`.\`${targetTable}\``
+        `SELECT COUNT(*) as cnt FROM \`${targetDb}\`.\`${targetTable}\`${whereClause}`
       );
       const total = countResult.isResultSet && countResult.rows.length > 0
         ? Number(countResult.rows[0][0]) || 0
@@ -278,7 +408,7 @@ export default function MysqlTableManager() {
 
       const dataResult = await mysqlQuery(
         connectionId,
-        `SELECT * FROM \`${targetDb}\`.\`${targetTable}\` LIMIT ${offset}, ${currentSize}`
+        `SELECT * FROM \`${targetDb}\`.\`${targetTable}\`${whereClause}${orderClause} LIMIT ${offset}, ${currentSize}`
       );
 
       setDataState({
@@ -291,13 +421,17 @@ export default function MysqlTableManager() {
         error: ""
       });
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.fetchData",
+        message: `Failed to fetch table data for ${targetDb}.${targetTable}`
+      });
       setDataState((prev) => ({
         ...prev,
         loading: false,
         error: err instanceof Error ? err.message : String(err)
       }));
     }
-  }, [connectionId, selectedTableInfo?.database, selectedTableInfo?.table, dataState.page, dataState.pageSize]);
+  }, [activeOpenedTable, connectionId, selectedTableInfo?.database, selectedTableInfo?.table, dataState.page, dataState.pageSize]);
 
   // ─── Data pagination ───
 
@@ -310,6 +444,63 @@ export default function MysqlTableManager() {
 
   const handlePageSizeChange = (newSize: number) => {
     fetchData(undefined, undefined, 1, newSize);
+  };
+
+  const copyToClipboard = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.copyClipboard",
+        message: "Failed to copy content to clipboard"
+      });
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const getRowObject = (rowIndex: number) => {
+    const row = dataState.rows[rowIndex] ?? [];
+    return Object.fromEntries(dataState.columns.map((col, index) => [col, row[index]]));
+  };
+
+  const applyFilter = async (column: string, value: string) => {
+    if (!activeOpenedTable) return;
+    updateOpenedTableQueryState(activeOpenedTable.database, activeOpenedTable.table, {
+      filterColumn: column,
+      filterValue: value
+    });
+    setFilterModalOpen(false);
+    await fetchData(activeOpenedTable.database, activeOpenedTable.table, 1, dataState.pageSize);
+  };
+
+  const clearFilter = async () => {
+    if (!activeOpenedTable) return;
+    updateOpenedTableQueryState(activeOpenedTable.database, activeOpenedTable.table, {
+      filterColumn: undefined,
+      filterValue: undefined
+    });
+    setFilterModalOpen(false);
+    await fetchData(activeOpenedTable.database, activeOpenedTable.table, 1, dataState.pageSize);
+  };
+
+  const applySort = async (column: string, direction: "asc" | "desc") => {
+    if (!activeOpenedTable) return;
+    updateOpenedTableQueryState(activeOpenedTable.database, activeOpenedTable.table, {
+      sortColumn: column,
+      sortDirection: direction
+    });
+    setSortModalOpen(false);
+    await fetchData(activeOpenedTable.database, activeOpenedTable.table, 1, dataState.pageSize);
+  };
+
+  const clearSort = async () => {
+    if (!activeOpenedTable) return;
+    updateOpenedTableQueryState(activeOpenedTable.database, activeOpenedTable.table, {
+      sortColumn: undefined,
+      sortDirection: undefined
+    });
+    setSortModalOpen(false);
+    await fetchData(activeOpenedTable.database, activeOpenedTable.table, 1, dataState.pageSize);
   };
 
   // ─── Data editing ───
@@ -373,6 +564,10 @@ export default function MysqlTableManager() {
       setEditingRow(null);
       fetchData();
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.saveEdit",
+        message: `Failed to update row in ${db}.${table}`
+      });
       setEditError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -414,6 +609,10 @@ export default function MysqlTableManager() {
       await mysqlQuery(connectionId, sql);
       fetchData();
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.deleteRow",
+        message: `Failed to delete row from ${db}.${table}`
+      });
       setDataState((prev) => ({
         ...prev,
         error: err instanceof Error ? err.message : String(err)
@@ -429,15 +628,30 @@ export default function MysqlTableManager() {
 
     try {
       await mysqlQuery(connectionId, `DROP TABLE \`${db}\`.\`${table}\``);
-      setTablesMap((prev) => ({
+      setTablesByDb((prev) => ({
         ...prev,
         [db]: (prev[db] ?? []).filter((t) => t !== table)
       }));
       if (selectedTableInfo?.database === db && selectedTableInfo?.table === table) {
+        setSelectedTable(undefined);
         setSelectedTableInfo(null);
         setDataState(defaultDataState);
       }
+      const targetKey = getMysqlOpenedTableKey(db, table);
+      const remainingOpenedTables = openedTables.filter((item) => getMysqlOpenedTableKey(item.database, item.table) !== targetKey);
+      setOpenedTables(remainingOpenedTables);
+      if (activeOpenedTableKey === targetKey) {
+        const nextActive = remainingOpenedTables[remainingOpenedTables.length - 1] ?? null;
+        setActiveOpenedTableKey(nextActive ? getMysqlOpenedTableKey(nextActive.database, nextActive.table) : null);
+        if (location.pathname === "/mysql/table") {
+          await navigate(nextActive ? "/mysql/table" : "/mysql/tables");
+        }
+      }
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.dropTable",
+        message: `Failed to drop table ${db}.${table}`
+      });
       setError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -449,56 +663,58 @@ export default function MysqlTableManager() {
     try {
       await mysqlQuery(connectionId, `TRUNCATE TABLE \`${db}\`.\`${table}\``);
       if (selectedTableInfo?.database === db && selectedTableInfo?.table === table) {
-        handleSelectTable(db, table);
-        if (rightPanelTab === "data") {
-          fetchData(db, table, 1);
-        }
+        await handleOpenTable(db, table, rightPanelTab);
       }
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.truncateTable",
+        message: `Failed to truncate table ${db}.${table}`
+      });
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const handleDropDatabase = async (db: string) => {
+  const handleCopyTable = async (db: string, table: string) => {
     if (!connectionId) return;
-    if (!confirm(`Drop database \`${db}\`? This cannot be undone!`)) return;
+
+    const nextName = window.prompt(t("mysql.tableManager.copyTablePrompt"), `${table}_copy`)?.trim();
+    if (!nextName || nextName === table) return;
 
     try {
-      await mysqlQuery(connectionId, `DROP DATABASE \`${db}\``);
-      setDatabases((prev) => prev.filter((d) => d !== db));
-      setTablesMap((prev) => {
-        const next = { ...prev };
-        delete next[db];
-        return next;
-      });
-      if (expandedDb === db) setExpandedDb(null);
-      if (selectedTableInfo?.database === db) {
-        setSelectedTableInfo(null);
-        setDataState(defaultDataState);
-      }
+      await mysqlQuery(connectionId, `CREATE TABLE \`${db}\`.\`${nextName}\` LIKE \`${db}\`.\`${table}\``);
+      await mysqlQuery(connectionId, `INSERT INTO \`${db}\`.\`${nextName}\` SELECT * FROM \`${db}\`.\`${table}\``);
+      await refreshTablesForDb(db);
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.copyTable",
+        message: `Failed to copy table ${db}.${table} to ${nextName}`
+      });
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
   // ─── Context menu ───
 
-  const handleDbContextMenu = (e: MouseEvent, db: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setTreeContextMenu({ type: "database", db, x: e.clientX, y: e.clientY });
-  };
-
   const handleTableContextMenu = (e: MouseEvent, db: string, table: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setTreeContextMenu({ type: "table", db, table, x: e.clientX, y: e.clientY });
+    setTreeContextMenu({ db, table, x: e.clientX, y: e.clientY });
+  };
+
+  const handleRowContextMenu = (e: MouseEvent<HTMLElement>, rowIndex: number, column: string, value: unknown) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedRowIndex(rowIndex);
+    setRowContextMenu({ x: e.clientX, y: e.clientY, rowIndex, column, value });
   };
 
   // Close context menu on outside click / scroll / resize
   useEffect(() => {
-    if (!treeContextMenu) return;
-    const close = () => setTreeContextMenu(null);
+    if (!treeContextMenu && !rowContextMenu) return;
+    const close = () => {
+      setTreeContextMenu(null);
+      setRowContextMenu(null);
+    };
     window.addEventListener("click", close);
     window.addEventListener("resize", close);
     window.addEventListener("scroll", close, true);
@@ -507,7 +723,7 @@ export default function MysqlTableManager() {
       window.removeEventListener("resize", close);
       window.removeEventListener("scroll", close, true);
     };
-  }, [treeContextMenu]);
+  }, [rowContextMenu, treeContextMenu]);
 
   // ─── SQL modal ───
 
@@ -534,6 +750,10 @@ export default function MysqlTableManager() {
         refreshTablesForDb(selectedDatabase);
       }
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.sqlModal",
+        message: "Failed to execute SQL from MySQL table manager modal"
+      });
       setSqlModalResult(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSqlModalLoading(false);
@@ -583,10 +803,7 @@ export default function MysqlTableManager() {
 
   const refreshSelectedTableInfo = async () => {
     if (!selectedTableInfo) return;
-    await handleSelectTable(selectedTableInfo.database, selectedTableInfo.table);
-    if (rightPanelTab === "data") {
-      await fetchData(selectedTableInfo.database, selectedTableInfo.table, 1, dataState.pageSize);
-    }
+    await handleOpenTable(selectedTableInfo.database, selectedTableInfo.table, rightPanelTab);
   };
 
   const handleSaveColumnEdit = async () => {
@@ -616,6 +833,10 @@ export default function MysqlTableManager() {
       setColumnEditOpen(false);
       await refreshSelectedTableInfo();
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.saveColumnEdit",
+        message: `Failed to ${columnEditMode === "add" ? "add" : "modify"} column ${field}`
+      });
       setColumnEditError(err instanceof Error ? err.message : String(err));
     } finally {
       setColumnEditLoading(false);
@@ -633,6 +854,10 @@ export default function MysqlTableManager() {
       );
       await refreshSelectedTableInfo();
     } catch (err) {
+      logError(err, {
+        source: "mysqlTableManager.dropColumn",
+        message: `Failed to drop column ${column.field}`
+      });
       setError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -719,6 +944,57 @@ export default function MysqlTableManager() {
 
     return (
       <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid #e5e5ea", gap: "12px", flexShrink: 0 }}>
+          <div style={{ fontSize: "12px", color: "#6b7280", display: "flex", gap: "16px", flexWrap: "wrap" }}>
+            <span>
+              {activeOpenedTable?.filterColumn && activeOpenedTable.filterValue !== undefined && activeOpenedTable.filterValue !== ""
+                ? t("mysql.tableManager.filterSummary", { column: activeOpenedTable.filterColumn, value: activeOpenedTable.filterValue })
+                : t("mysql.tableManager.noFilterApplied")}
+            </span>
+            <span>
+              {activeOpenedTable?.sortColumn
+                ? t("mysql.tableManager.sortSummary", {
+                    column: activeOpenedTable.sortColumn,
+                    direction: activeOpenedTable.sortDirection === "desc" ? t("dataBrowser.sortDescending") : t("dataBrowser.sortAscending")
+                  })
+                : t("mysql.tableManager.noSortApplied")}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => {
+                setFilterDraft({
+                  column: activeOpenedTable?.filterColumn ?? dataState.columns[0] ?? "",
+                  value: activeOpenedTable?.filterValue ?? ""
+                });
+                setFilterModalOpen(true);
+              }}
+            >
+              {t("mysql.tableManager.filterData")}
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => {
+                setSortDraft({
+                  column: activeOpenedTable?.sortColumn ?? dataState.columns[0] ?? "",
+                  direction: activeOpenedTable?.sortDirection ?? "asc"
+                });
+                setSortModalOpen(true);
+              }}
+            >
+              {t("mysql.tableManager.sortData")}
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => fetchData()}
+              disabled={dataState.loading}
+            >
+              {dataState.loading ? t("common.loading") : t("common.refresh")}
+            </button>
+          </div>
+        </div>
+
         {/* Data error */}
         {dataState.error && (
           <div className="text-danger" style={{ margin: "8px 12px", padding: "8px 12px", background: "#fef2f2", borderRadius: "8px" }}>
@@ -741,13 +1017,14 @@ export default function MysqlTableManager() {
             <tbody>
               {dataState.rows.map((row, rowIndex) => (
                 <>
-                  <tr key={rowIndex}>
+                  <tr key={rowIndex} style={{ background: selectedRowIndex === rowIndex ? "#eef4ff" : undefined }} onClick={() => setSelectedRowIndex(rowIndex)}>
                     <td className="muted">{(dataState.page - 1) * dataState.pageSize + rowIndex + 1}</td>
                     {row.map((cell, cellIndex) => (
                       <td
                         key={cellIndex}
                         style={{ maxWidth: "300px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={cell === null ? "NULL" : String(cell)}
+                        onContextMenu={(event) => handleRowContextMenu(event, rowIndex, dataState.columns[cellIndex] ?? "", cell)}
                       >
                         {cell === null ? <span className="muted">NULL</span> : String(cell)}
                       </td>
@@ -812,154 +1089,138 @@ export default function MysqlTableManager() {
     );
   };
 
-  return (
-    <div className="page">
-      <div style={{ display: "flex", gap: "12px", height: "calc(100vh - 160px)" }}>
-        {/* Left panel - Database/Table tree */}
-        <div className="card" style={{ display: "none" }}>
-          <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3 className="card-title">{t("mysql.tableManager.databases")}</h3>
-            <div style={{ display: "flex", gap: "4px" }}>
-              <button className="btn btn-sm btn-ghost" onClick={() => refreshDatabases()} disabled={loading}>
-                {t("common.refresh")}
-              </button>
-              <button className="btn btn-sm btn-primary" onClick={() => openSqlModal("CREATE DATABASE `new_db`;")}>
-                +
-              </button>
-            </div>
+  const renderDatabaseOverview = () => {
+    if (!expandedDatabase) {
+      return (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span className="muted">{t("mysql.tableManager.openDatabaseHint")}</span>
+        </div>
+      );
+    }
+
+    const tables = tablesByDb[expandedDatabase] ?? [];
+
+    return (
+      <>
+        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h3 className="card-title">{expandedDatabase}</h3>
+            <p className="muted" style={{ margin: "4px 0 0" }}>
+              {t("mysql.tableManager.tableCount", { count: tables.length })}
+            </p>
           </div>
-
-          <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
-            {databases.map((db) => (
-              <div key={db}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    background: expandedDb === db ? "#f0f0f5" : "transparent",
-                    borderRadius: "6px",
-                    margin: "1px 4px"
-                  }}
-                  onClick={() => handleExpandDb(db)}
-                  onContextMenu={(e) => handleDbContextMenu(e, db)}
-                >
-                  <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span>{expandedDb === db ? "▾" : "▸"}</span>
-                    <span style={{ fontWeight: expandedDb === db ? 500 : 400 }}>{db}</span>
-                  </span>
-                  {tablesMap[db] && (
-                    <span className="muted" style={{ fontSize: "11px" }}>{tablesMap[db].length}</span>
-                  )}
-                </div>
-
-                {expandedDb === db && tablesMap[db] && (
-                  <div style={{ paddingLeft: "24px" }}>
-                    {tablesMap[db].map((table) => (
-                      <div
-                        key={table}
-                        style={{
-                          padding: "4px 12px",
-                          cursor: "pointer",
-                          fontSize: "13px",
-                          borderRadius: "4px",
-                          margin: "1px 0",
-                          background: selectedTableInfo?.database === db && selectedTableInfo?.table === table ? "#e8e8ed" : "transparent"
-                        }}
-                        onClick={() => handleSelectTable(db, table)}
-                        onDoubleClick={() => handleBrowseData(db, table)}
-                        onContextMenu={(e) => handleTableContextMenu(e, db, table)}
-                      >
-                        {table}
-                      </div>
-                    ))}
-                    {tablesMap[db].length === 0 && (
-                      <div className="muted" style={{ padding: "4px 12px", fontSize: "12px" }}>{t("mysql.data.noTables")}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-            {databases.length === 0 && !loading && (
-              <div className="muted" style={{ padding: "16px", textAlign: "center", fontSize: "13px" }}>
-                {t("common.noData")}
-              </div>
-            )}
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => refreshTablesForDb(expandedDatabase)} disabled={loading}>
+              {t("mysql.tableManager.refreshTables")}
+            </button>
+            <button className="btn btn-sm btn-primary" onClick={() => openSqlModal(`CREATE TABLE \`${expandedDatabase}\`.\`new_table\` (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(255)\n);`)}>
+              {t("mysql.tableManager.createTable")}
+            </button>
           </div>
         </div>
 
-        {/* Right panel - Structure / Data */}
-        <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          {selectedTableInfo ? (
-            <>
-              {/* Header with table name and action buttons */}
-              <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h3 className="card-title">
-                  {selectedTableInfo.database}.{selectedTableInfo.table}
-                  {selectedTableInfo.rowCount !== undefined && (
-                    <span className="muted" style={{ fontWeight: 400, fontSize: "13px", marginLeft: "8px" }}>
-                      ({selectedTableInfo.rowCount} {t("mysql.data.rowCount")})
-                    </span>
-                  )}
-                </h3>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <button className="btn btn-sm btn-ghost" onClick={() => openSqlModal(`CREATE TABLE \`${selectedTableInfo.database}\`.\`new_table\` (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(255)\n);`)}>
-                    {t("mysql.tableManager.createTable")}
-                  </button>
-                  <button className="btn btn-sm btn-ghost" onClick={() => handleTruncateTable(selectedTableInfo.database, selectedTableInfo.table)}>
-                    {t("mysql.tableManager.truncate")}
-                  </button>
-                  <button className="btn btn-sm btn-ghost text-danger" onClick={() => handleDropTable(selectedTableInfo.database, selectedTableInfo.table)}>
-                    {t("mysql.tableManager.dropTable")}
-                  </button>
-                </div>
-              </div>
+        <div style={{ padding: "12px 16px 0", fontSize: "12px", color: "#6b7280" }}>
+          {t("mysql.tableManager.selectTableDataHint")}
+        </div>
 
-              {/* Tab switcher */}
-              <div style={{ display: "flex", gap: "0", borderBottom: "1px solid #e5e5ea", padding: "0 16px", flexShrink: 0 }}>
-                <button
-                  className={`btn btn-sm ${rightPanelTab === "structure" ? "btn-primary" : "btn-ghost"}`}
-                  style={{ borderRadius: "6px 6px 0 0", borderBottom: rightPanelTab === "structure" ? "2px solid #007aff" : "2px solid transparent" }}
-                  onClick={() => setRightPanelTab("structure")}
-                >
-                  {t("mysql.tableManager.structure")}
-                </button>
-                <button
-                  className={`btn btn-sm ${rightPanelTab === "data" ? "btn-primary" : "btn-ghost"}`}
-                  style={{ borderRadius: "6px 6px 0 0", borderBottom: rightPanelTab === "data" ? "2px solid #007aff" : "2px solid transparent" }}
-                  onClick={() => {
-                    if (rightPanelTab !== "data") {
-                      handleBrowseData(selectedTableInfo.database, selectedTableInfo.table);
+        <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
+          {tables.length > 0 ? (
+            <div className="mysql-table-grid">
+              {tables.map((table) => (
+                <div
+                  key={table}
+                  className={`mysql-table-card ${selectedTable === table ? "active" : ""}`}
+                  onClick={() => handleSelectTable(expandedDatabase, table)}
+                  onDoubleClick={() => {
+                    void handleBrowseData(expandedDatabase, table);
+                  }}
+                  onContextMenu={(event) => handleTableContextMenu(event, expandedDatabase, table)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      void handleBrowseData(expandedDatabase, table);
                     }
                   }}
                 >
-                  {t("mysql.tableManager.data")}
-                </button>
-                {rightPanelTab === "data" && (
-                  <button
-                    className="btn btn-sm btn-ghost"
-                    style={{ marginLeft: "auto" }}
-                    onClick={() => fetchData()}
-                    disabled={dataState.loading}
-                  >
-                    {dataState.loading ? t("common.loading") : t("common.refresh")}
-                  </button>
-                )}
-              </div>
-
-              {/* Tab content */}
-              <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
-                {rightPanelTab === "structure" ? renderStructureTab() : renderDataTab()}
-              </div>
-            </>
+                  <div className="mysql-table-card-icon">▤</div>
+                  <div className="mysql-table-card-name" title={table}>{table}</div>
+                </div>
+              ))}
+            </div>
           ) : (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span className="muted">{t("mysql.tableManager.selectTableDataHint")}</span>
+            <div className="card" style={{ padding: "32px", textAlign: "center" }}>
+              <span className="muted">{t("mysql.data.noTables")}</span>
             </div>
           )}
+        </div>
+      </>
+    );
+  };
+
+  const renderTableWorkspace = () => {
+    if (!activeOpenedTable) {
+      return (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span className="muted">{t("mysql.tableManager.selectTableDataHint")}</span>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h3 className="card-title">
+              {selectedTableInfo?.database ?? activeOpenedTable.database}.{selectedTableInfo?.table ?? activeOpenedTable.table}
+              {selectedTableInfo?.rowCount !== undefined && (
+                <span className="muted" style={{ fontWeight: 400, fontSize: "13px", marginLeft: "8px" }}>
+                  ({selectedTableInfo.rowCount} {t("mysql.data.rowCount")})
+                </span>
+              )}
+            </h3>
+            <p className="muted" style={{ margin: "4px 0 0" }}>{t("mysql.tableManager.tableOpenedHint")}</p>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "0", borderBottom: "1px solid #e5e5ea", padding: "0 16px", flexShrink: 0 }}>
+          <button
+            className={`btn btn-sm ${rightPanelTab === "structure" ? "btn-primary" : "btn-ghost"}`}
+            style={{ borderRadius: "6px 6px 0 0", borderBottom: rightPanelTab === "structure" ? "2px solid #007aff" : "2px solid transparent" }}
+            onClick={() => {
+              if (!activeOpenedTable) return;
+              setRightPanelTab("structure");
+              setOpenedTableView(activeOpenedTable.database, activeOpenedTable.table, "structure");
+            }}
+          >
+            {t("mysql.tableManager.structure")}
+          </button>
+          <button
+            className={`btn btn-sm ${rightPanelTab === "data" ? "btn-primary" : "btn-ghost"}`}
+            style={{ borderRadius: "6px 6px 0 0", borderBottom: rightPanelTab === "data" ? "2px solid #007aff" : "2px solid transparent" }}
+            onClick={() => {
+              if (!activeOpenedTable) return;
+              setRightPanelTab("data");
+              setOpenedTableView(activeOpenedTable.database, activeOpenedTable.table, "data");
+            }}
+          >
+            {t("mysql.tableManager.data")}
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
+          {rightPanelTab === "structure" ? renderStructureTab() : renderDataTab()}
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="page">
+      <div style={{ display: "flex", gap: "12px", height: "calc(100vh - 160px)" }}>
+        <div className="card" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          {isTableWorkspace ? renderTableWorkspace() : renderDatabaseOverview()}
         </div>
       </div>
 
@@ -988,100 +1249,205 @@ export default function MysqlTableManager() {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {treeContextMenu.type === "database" ? (
-            <>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                style={{ width: "100%", justifyContent: "flex-start" }}
-                onClick={() => {
-                  const db = treeContextMenu.db;
-                  setTreeContextMenu(null);
-                  refreshTablesForDb(db);
-                  if (expandedDb !== db) setExpandedDb(db);
-                }}
-              >
-                {t("mysql.tableManager.refreshTables")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                style={{ width: "100%", justifyContent: "flex-start" }}
-                onClick={() => {
-                  const db = treeContextMenu.db;
-                  setTreeContextMenu(null);
-                  openSqlModal(`CREATE TABLE \`${db}\`.\`new_table\` (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(255)\n);`);
-                }}
-              >
-                {t("mysql.tableManager.createTable")}
-              </button>
-              <div style={{ height: "1px", background: "#e5e5ea", margin: "4px 0" }} />
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost text-danger"
-                style={{ width: "100%", justifyContent: "flex-start" }}
-                onClick={() => {
-                  const db = treeContextMenu.db;
-                  setTreeContextMenu(null);
-                  handleDropDatabase(db);
-                }}
-              >
-                {t("mysql.tableManager.dropDatabase")}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                style={{ width: "100%", justifyContent: "flex-start" }}
-                onClick={() => {
-                  const { db, table } = treeContextMenu;
-                  setTreeContextMenu(null);
-                  handleBrowseData(db, table!);
-                }}
-              >
-                {t("mysql.tableManager.browseData")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                style={{ width: "100%", justifyContent: "flex-start" }}
-                onClick={() => {
-                  const { db, table } = treeContextMenu;
-                  setTreeContextMenu(null);
-                  handleSelectTable(db, table!);
-                }}
-              >
-                {t("mysql.tableManager.viewStructure")}
-              </button>
-              <div style={{ height: "1px", background: "#e5e5ea", margin: "4px 0" }} />
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                style={{ width: "100%", justifyContent: "flex-start" }}
-                onClick={() => {
-                  const { db, table } = treeContextMenu;
-                  setTreeContextMenu(null);
-                  handleTruncateTable(db, table!);
-                }}
-              >
-                {t("mysql.tableManager.truncate")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost text-danger"
-                style={{ width: "100%", justifyContent: "flex-start" }}
-                onClick={() => {
-                  const { db, table } = treeContextMenu;
-                  setTreeContextMenu(null);
-                  handleDropTable(db, table!);
-                }}
-              >
-                {t("mysql.tableManager.dropTable")}
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              const { db, table } = treeContextMenu;
+              setTreeContextMenu(null);
+              void handleBrowseData(db, table);
+            }}
+          >
+            {t("mysql.tableManager.openTable")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              const { db, table } = treeContextMenu;
+              setTreeContextMenu(null);
+              void handleDesignTable(db, table);
+            }}
+          >
+            {t("mysql.tableManager.designTable")}
+          </button>
+          <div style={{ height: "1px", background: "#e5e5ea", margin: "4px 0" }} />
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              const { db, table } = treeContextMenu;
+              setTreeContextMenu(null);
+              void handleCopyTable(db, table);
+            }}
+          >
+            {t("mysql.tableManager.copyTable")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              const { db, table } = treeContextMenu;
+              setTreeContextMenu(null);
+              void handleTruncateTable(db, table);
+            }}
+          >
+            {t("mysql.tableManager.truncate")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost text-danger"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              const { db, table } = treeContextMenu;
+              setTreeContextMenu(null);
+              void handleDropTable(db, table);
+            }}
+          >
+            {t("mysql.tableManager.dropTable")}
+          </button>
+        </div>
+      )}
+
+      {rowContextMenu && (
+        <div
+          style={{
+            position: "fixed",
+            left: `${rowContextMenu.x}px`,
+            top: `${rowContextMenu.y}px`,
+            zIndex: 1200,
+            minWidth: "180px",
+            background: "#fff",
+            border: "1px solid #d1d1d6",
+            borderRadius: "8px",
+            boxShadow: "0 8px 20px rgba(0, 0, 0, 0.12)",
+            padding: "4px"
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              void copyToClipboard(rowContextMenu.value === null ? "NULL" : String(rowContextMenu.value));
+              setRowContextMenu(null);
+            }}
+          >
+            {t("mysql.tableManager.copyCellValue")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              void copyToClipboard(JSON.stringify(getRowObject(rowContextMenu.rowIndex), null, 2));
+              setRowContextMenu(null);
+            }}
+          >
+            {t("dataBrowser.copyRow")}
+          </button>
+          <div style={{ height: "1px", background: "#e5e5ea", margin: "4px 0" }} />
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              void applyFilter(rowContextMenu.column, rowContextMenu.value === null ? "NULL" : String(rowContextMenu.value));
+              setRowContextMenu(null);
+            }}
+          >
+            {t("mysql.tableManager.filterByCurrentValue")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              void applySort(rowContextMenu.column, "asc");
+              setRowContextMenu(null);
+            }}
+          >
+            {t("dataBrowser.sortAscending")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: "100%", justifyContent: "flex-start" }}
+            onClick={() => {
+              void applySort(rowContextMenu.column, "desc");
+              setRowContextMenu(null);
+            }}
+          >
+            {t("dataBrowser.sortDescending")}
+          </button>
+        </div>
+      )}
+
+      {filterModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="card" style={{ width: "480px", display: "flex", flexDirection: "column" }}>
+            <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 className="card-title">{t("mysql.tableManager.filterData")}</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => setFilterModalOpen(false)}>{t("common.close")}</button>
+            </div>
+            <div style={{ padding: "16px", display: "grid", gap: "12px" }}>
+              <div>
+                <label>{t("mysql.tableManager.filterColumn")}</label>
+                <select className="form-control" value={filterDraft.column} onChange={(event) => setFilterDraft((prev) => ({ ...prev, column: event.target.value }))}>
+                  {dataState.columns.map((column) => (
+                    <option key={column} value={column}>{column}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>{t("mysql.tableManager.filterValue")}</label>
+                <input className="form-control" value={filterDraft.value} onChange={(event) => setFilterDraft((prev) => ({ ...prev, value: event.target.value }))} />
+              </div>
+            </div>
+            <div style={{ padding: "12px 16px", borderTop: "1px solid #e5e5ea", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => void clearFilter()}>{t("mysql.tableManager.clearFilter")}</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setFilterModalOpen(false)}>{t("common.cancel")}</button>
+              <button className="btn btn-sm btn-primary" onClick={() => void applyFilter(filterDraft.column, filterDraft.value)}>{t("common.save")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sortModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="card" style={{ width: "480px", display: "flex", flexDirection: "column" }}>
+            <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 className="card-title">{t("mysql.tableManager.sortData")}</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => setSortModalOpen(false)}>{t("common.close")}</button>
+            </div>
+            <div style={{ padding: "16px", display: "grid", gap: "12px" }}>
+              <div>
+                <label>{t("mysql.tableManager.sortColumn")}</label>
+                <select className="form-control" value={sortDraft.column} onChange={(event) => setSortDraft((prev) => ({ ...prev, column: event.target.value }))}>
+                  {dataState.columns.map((column) => (
+                    <option key={column} value={column}>{column}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>{t("mysql.tableManager.sortDirection")}</label>
+                <select className="form-control" value={sortDraft.direction} onChange={(event) => setSortDraft((prev) => ({ ...prev, direction: event.target.value as "asc" | "desc" }))}>
+                  <option value="asc">{t("dataBrowser.sortAscending")}</option>
+                  <option value="desc">{t("dataBrowser.sortDescending")}</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ padding: "12px 16px", borderTop: "1px solid #e5e5ea", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => void clearSort()}>{t("mysql.tableManager.clearSort")}</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setSortModalOpen(false)}>{t("common.cancel")}</button>
+              <button className="btn btn-sm btn-primary" onClick={() => void applySort(sortDraft.column, sortDraft.direction)}>{t("common.save")}</button>
+            </div>
+          </div>
         </div>
       )}
 

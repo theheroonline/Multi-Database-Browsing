@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { logError } from "../../../lib/errorLog";
 import { useMysqlContext } from "../../../state/MysqlContext";
 import { mysqlDescribeTable, mysqlListDatabases, mysqlListTables, mysqlQuery } from "../services/client";
 import type { ColumnMeta } from "../types";
@@ -134,6 +135,10 @@ export default function MysqlDataBrowser() {
         error: ""
       });
     } catch (err) {
+      logError(err, {
+        source: "mysqlDataBrowser.fetchData",
+        message: `Failed to load table data for ${selectedDatabase}.${selectedTable}`
+      });
       setQueryState((prev) => ({
         ...prev,
         loading: false,
@@ -231,6 +236,10 @@ export default function MysqlDataBrowser() {
       setEditingRow(null);
       fetchData();
     } catch (err) {
+      logError(err, {
+        source: "mysqlDataBrowser.saveEdit",
+        message: `Failed to update row in ${selectedDatabase}.${selectedTable}`
+      });
       setEditError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -272,6 +281,10 @@ export default function MysqlDataBrowser() {
       await mysqlQuery(connectionId, sql);
       fetchData();
     } catch (err) {
+      logError(err, {
+        source: "mysqlDataBrowser.deleteRow",
+        message: `Failed to delete row from ${selectedDatabase}.${selectedTable}`
+      });
       setQueryState((prev) => ({
         ...prev,
         error: err instanceof Error ? err.message : String(err)

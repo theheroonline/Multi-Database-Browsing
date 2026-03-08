@@ -6,6 +6,7 @@ import "dayjs/locale/zh-cn";
 import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import FieldFilterButton, { type FieldFilterState } from "../../../components/FieldFilterButton";
+import { logError } from "../../../lib/errorLog";
 import { useAppContext } from "../../../state/AppContext";
 import { extractFieldsFromMapping, getIndexMapping, sqlQuery } from "../services/client";
 import SqlHistory from "./SqlHistory";
@@ -229,8 +230,11 @@ export default function SqlQuery() {
       await addHistory(selectedIndex ? `SQL: ${selectedIndex}` : t('sqlQuery.sqlHistory'), sql);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('common.error');
+      logError(err, {
+        source: "esSqlQuery.execute",
+        message: `Elasticsearch SQL execution failed for index ${selectedIndex ?? "unknown"}`
+      });
       setError(`${t('sqlQuery.sqlError')} ${message}`);
-      console.error("SQL 查询错误:", err);
     }
   };
 

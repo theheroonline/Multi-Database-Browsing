@@ -6,6 +6,7 @@ import "dayjs/locale/zh-cn";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import FieldFilterButton, { type FieldFilterState } from "../../../components/FieldFilterButton";
+import { logError } from "../../../lib/errorLog";
 import { useAppContext } from "../../../state/AppContext";
 import { deleteDocument, extractFieldsFromMapping, getIndexMapping, refreshIndex, searchIndex, updateDocument } from "../services/client";
 
@@ -304,6 +305,10 @@ export default function DataBrowser() {
         const response = await executeQuery();
         if (!ignore) setResult(response);
       } catch (err) {
+        logError(err, {
+          source: "esDataBrowser.autoQuery",
+          message: "Automatic Elasticsearch query failed"
+        });
         if (!ignore) setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!ignore) {
@@ -393,6 +398,10 @@ export default function DataBrowser() {
           const response = await executeQuery();
           setResult(response);
       } catch (e) {
+          logError(e, {
+            source: "esDataBrowser.deleteDocument",
+            message: `Failed to delete Elasticsearch document ${docId}`
+          });
           setError(t('dataBrowser.deleteFailed') + (e instanceof Error ? e.message : String(e)));
       } finally {
           setLoading(false);
@@ -435,7 +444,11 @@ export default function DataBrowser() {
       if (item.operator === "range") {
         try {
           parsed = JSON.parse(item.value);
-        } catch {
+        } catch (error) {
+          logError(error, {
+            source: "esDataBrowser.parseRange",
+            message: `Failed to parse range query JSON for field ${item.field}`
+          });
           throw new Error(t('dataBrowser.rangeError'));
         }
       }
@@ -494,6 +507,10 @@ export default function DataBrowser() {
           const response = await executeQuery();
           setResult(response);
       } catch (e) {
+          logError(e, {
+            source: "esDataBrowser.updateDocument",
+            message: `Failed to update Elasticsearch document ${editingDoc?._id ?? "unknown"}`
+          });
           setError(t('dataBrowser.updateFailed') + (e instanceof Error ? e.message : t('dataBrowser.checkJsonFormat')));
       } finally {
           setLoading(false);
@@ -537,7 +554,11 @@ export default function DataBrowser() {
       if (item.operator === "range") {
         try {
           parsed = JSON.parse(item.value);
-        } catch {
+        } catch (error) {
+          logError(error, {
+            source: "esDataBrowser.parseRangeExecute",
+            message: `Failed to parse range query JSON for field ${item.field}`
+          });
           setError(t('dataBrowser.rangeError'));
           setLoading(false);
           return;
@@ -663,6 +684,10 @@ export default function DataBrowser() {
         setResult(data);
       }
     } catch (err) {
+      logError(err, {
+        source: "esDataBrowser.execute",
+        message: "Elasticsearch data query failed"
+      });
       setError(t('dataBrowser.queryFailed') + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
@@ -753,6 +778,10 @@ export default function DataBrowser() {
       setSelectedDocs(new Set());
       await execute();
     } catch (err) {
+      logError(err, {
+        source: "esDataBrowser.deleteSelected",
+        message: `Failed to delete ${selectedRows.length} selected Elasticsearch documents`
+      });
       setError(t('dataBrowser.deleteFailed') + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);

@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { logError } from "../../../lib/errorLog";
 import type { EsConnection } from "../types";
 
 const isTauriEnv = isTauri();
@@ -19,8 +20,11 @@ function extractCredentials(baseUrl: string) {
       url.password = "";
       return { baseUrl: url.toString().replace(/\/$/, ""), username, password };
     }
-  } catch {
-    // ignore invalid URL
+  } catch (error) {
+    logError(error, {
+      source: "esClient.extractCredentials",
+      message: `Failed to parse Elasticsearch URL ${baseUrl}`
+    });
   }
   return null;
 }
@@ -60,7 +64,11 @@ function normalizeBaseUrl(baseUrl: string): string | null {
   try {
     const url = new URL(withProtocol);
     return url.origin;
-  } catch {
+  } catch (error) {
+    logError(error, {
+      source: "esClient.normalizeBaseUrl",
+      message: `Failed to normalize Elasticsearch base URL ${baseUrl}`
+    });
     return null;
   }
 }
@@ -94,48 +102,60 @@ export async function esRequest<T>(
   path: string,
   options: { method?: string; body?: unknown } = {}
 ) {
-  const normalized = normalizeConnection(connection);
-  const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
-  if (!normalizedBase) {
-    throw new Error("CONNECTION_FAILED");
+  try {
+    const normalized = normalizeConnection(connection);
+    const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
+    if (!normalizedBase) {
+      throw new Error("CONNECTION_FAILED");
+    }
+    const requestPath = `/${path.replace(/^\//, "")}`;
+
+    const url = isTauriEnv
+      ? `${normalizedBase}${requestPath}`
+      : `/es${requestPath}`;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+
+    if (!isTauriEnv) {
+      headers["x-es-target"] = normalizedBase;
+    }
+
+    const auth = buildAuthHeader(normalized);
+    if (auth && !isTauriEnv) {
+      headers["Authorization"] = auth;
+    }
+
+    const tauriAuth = isTauriEnv ? {
+      authType: normalized.authType,
+      username: normalized.username,
+      password: normalized.password,
+      apiKey: normalized.apiKey
+    } : undefined;
+
+    const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
+
+    const res = isTauriEnv
+      ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr, normalized.verifyTls ?? true, tauriAuth)
+      : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
+
+    if (!res.ok) {
+      throw new Error(res.body || `请求失败: ${res.status}`);
+    }
+
+    return JSON.parse(res.body) as T;
+  } catch (error) {
+    logError(error, {
+      source: "esClient.esRequest",
+      message: `Elasticsearch request failed: ${options.method ?? "GET"} ${path}`,
+      detail: {
+        connectionId: connection.id,
+        connectionName: connection.name
+      }
+    });
+    throw error;
   }
-  const requestPath = `/${path.replace(/^\//, "")}`;
-
-  const url = isTauriEnv
-    ? `${normalizedBase}${requestPath}`
-    : `/es${requestPath}`;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json"
-  };
-
-  if (!isTauriEnv) {
-    headers["x-es-target"] = normalizedBase;
-  }
-
-  const auth = buildAuthHeader(normalized);
-  if (auth && !isTauriEnv) {
-    headers["Authorization"] = auth;
-  }
-
-  const tauriAuth = isTauriEnv ? {
-    authType: normalized.authType,
-    username: normalized.username,
-    password: normalized.password,
-    apiKey: normalized.apiKey
-  } : undefined;
-
-  const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
-
-  const res = isTauriEnv
-    ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr, normalized.verifyTls ?? true, tauriAuth)
-    : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
-
-  if (!res.ok) {
-    throw new Error(res.body || `请求失败: ${res.status}`);
-  }
-
-  return JSON.parse(res.body) as T;
 }
 
 export async function esRequestRaw(
@@ -143,59 +163,70 @@ export async function esRequestRaw(
   path: string,
   options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
 ): Promise<{ status: number; ok: boolean; body: string }> {
-  const normalized = normalizeConnection(connection);
-  const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
-  if (!normalizedBase) {
-    throw new Error("CONNECTION_FAILED");
-  }
-  const requestPath = `/${path.replace(/^\//, "")}`;
+  try {
+    const normalized = normalizeConnection(connection);
+    const normalizedBase = normalizeBaseUrl(normalized.baseUrl);
+    if (!normalizedBase) {
+      throw new Error("CONNECTION_FAILED");
+    }
+    const requestPath = `/${path.replace(/^\//, "")}`;
 
-  let url: string;
-  if (isTauriEnv) {
-    url = `${normalizedBase}${requestPath}`;
-  } else {
-    url = `/es${requestPath}`;
-  }
-
-  const headers: Record<string, string> = {
-    ...(options.headers ?? {})
-  };
-
-  if (!isTauriEnv) {
-    headers["x-es-target"] = normalizedBase;
-  }
-
-  const auth = buildAuthHeader(normalized);
-  if (auth && !isTauriEnv) {
-    headers["Authorization"] = auth;
-  }
-
-  // Build native auth for Tauri
-  const tauriAuth = isTauriEnv ? {
-    authType: normalized.authType,
-    username: normalized.username,
-    password: normalized.password,
-    apiKey: normalized.apiKey
-  } : undefined;
-
-  let bodyStr: string | undefined;
-  if (options.body !== undefined) {
-    if (typeof options.body === "string") {
-      bodyStr = options.body;
-      if (!headers["Content-Type"]) {
-        headers["Content-Type"] = "text/plain";
-      }
+    let url: string;
+    if (isTauriEnv) {
+      url = `${normalizedBase}${requestPath}`;
     } else {
-      bodyStr = JSON.stringify(options.body);
-      if (!headers["Content-Type"]) {
-        headers["Content-Type"] = "application/json";
+      url = `/es${requestPath}`;
+    }
+
+    const headers: Record<string, string> = {
+      ...(options.headers ?? {})
+    };
+
+    if (!isTauriEnv) {
+      headers["x-es-target"] = normalizedBase;
+    }
+
+    const auth = buildAuthHeader(normalized);
+    if (auth && !isTauriEnv) {
+      headers["Authorization"] = auth;
+    }
+
+    const tauriAuth = isTauriEnv ? {
+      authType: normalized.authType,
+      username: normalized.username,
+      password: normalized.password,
+      apiKey: normalized.apiKey
+    } : undefined;
+
+    let bodyStr: string | undefined;
+    if (options.body !== undefined) {
+      if (typeof options.body === "string") {
+        bodyStr = options.body;
+        if (!headers["Content-Type"]) {
+          headers["Content-Type"] = "text/plain";
+        }
+      } else {
+        bodyStr = JSON.stringify(options.body);
+        if (!headers["Content-Type"]) {
+          headers["Content-Type"] = "application/json";
+        }
       }
     }
-  }
 
-  return isTauriEnv
-    ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr, normalized.verifyTls ?? true, tauriAuth)
-    : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
+    return isTauriEnv
+      ? await tauriHttpRequest(url, options.method ?? "GET", headers, bodyStr, normalized.verifyTls ?? true, tauriAuth)
+      : await browserHttpRequest(url, options.method ?? "GET", headers, bodyStr);
+  } catch (error) {
+    logError(error, {
+      source: "esClient.esRequestRaw",
+      message: `Elasticsearch raw request failed: ${options.method ?? "GET"} ${path}`,
+      detail: {
+        connectionId: connection.id,
+        connectionName: connection.name
+      }
+    });
+    throw error;
+  }
 }
 
 export async function pingCluster(connection: EsConnection) {

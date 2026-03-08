@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { logError } from "../../../lib/errorLog";
 import { useAppContext } from "../../../state/AppContext";
 import { createIndex, deleteIndex, getIndexInfo, refreshIndex } from "../services/client";
 
@@ -29,7 +30,10 @@ export default function IndexManager() {
     try {
       await refreshIndices(activeConnection);
     } catch (e) {
-      console.error(e);
+      logError(e, {
+        source: "indexManager.loadIndices",
+        message: "Failed to refresh Elasticsearch indices from Index Manager"
+      });
     }
   };
 
@@ -42,7 +46,11 @@ export default function IndexManager() {
       .then((info) => {
         setDetailData(info);
       })
-      .catch(() => {
+      .catch((error) => {
+        logError(error, {
+          source: "indexManager.loadDetail",
+          message: `Failed to load detail for index ${detailTarget}`
+        });
         setDetailData(null);
       })
       .finally(() => {
@@ -64,7 +72,11 @@ export default function IndexManager() {
       setCreateName("");
       setCreateBody("{}");
       setShowCreate(false);
-    } catch {
+    } catch (error) {
+      logError(error, {
+        source: "indexManager.createIndex",
+        message: `Failed to create index ${createName}`
+      });
       setError(t('indexManager.createFailed'));
     }
   };
@@ -91,7 +103,11 @@ export default function IndexManager() {
         setDetailTarget("");
       }
       setShowDeleteModal(false);
-    } catch {
+    } catch (error) {
+      logError(error, {
+        source: "indexManager.deleteIndex",
+        message: `Failed to delete index ${deleteTarget}`
+      });
       setError(t('indexManager.deleteFailed'));
     }
   };
@@ -101,7 +117,11 @@ export default function IndexManager() {
     try {
       await refreshIndex(activeConnection, index);
       await loadIndices(); // reload to get new counts
-    } catch {
+    } catch (error) {
+      logError(error, {
+        source: "indexManager.refreshIndex",
+        message: `Failed to refresh index ${index}`
+      });
       setError(t('indexManager.refreshFailed'));
     }
   };

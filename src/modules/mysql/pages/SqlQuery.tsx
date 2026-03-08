@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { logError } from "../../../lib/errorLog";
 import { useAppContext } from "../../../state/AppContext";
 import { useMysqlContext } from "../../../state/MysqlContext";
 import { mysqlQuery, type MysqlQueryResult } from "../services/client";
@@ -30,6 +31,10 @@ export default function MysqlSqlQuery() {
         sql.trim()
       );
     } catch (err) {
+      logError(err, {
+        source: "mysqlSqlQuery.execute",
+        message: `Failed to execute MySQL SQL on connection ${connectionId}`
+      });
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);

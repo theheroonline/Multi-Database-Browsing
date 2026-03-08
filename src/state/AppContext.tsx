@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { logError } from "../lib/errorLog";
 import { loadState, saveState } from "../lib/storage";
 import type { ConnectionProfile, LocalState, SecretConfig } from "../lib/types";
 import { listIndices } from "../modules/es/services/client";
@@ -55,20 +56,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [stateLoaded, setStateLoaded] = useState(false);
 
   useEffect(() => {
-    loadState().then((loaded) => {
-      const normalizedProfiles = (loaded.profiles ?? [])
-        .map((item) => normalizeProfile(item));
-      const lastConnectionId = normalizedProfiles.some((item) => item.id === loaded.lastConnectionId)
-        ? loaded.lastConnectionId
-        : normalizedProfiles[0]?.id;
+    loadState()
+      .then((loaded) => {
+        const normalizedProfiles = (loaded.profiles ?? [])
+          .map((item) => normalizeProfile(item));
+        const lastConnectionId = normalizedProfiles.some((item) => item.id === loaded.lastConnectionId)
+          ? loaded.lastConnectionId
+          : normalizedProfiles[0]?.id;
 
-      setState({
-        ...loaded,
-        profiles: normalizedProfiles,
-        lastConnectionId
+        setState({
+          ...loaded,
+          profiles: normalizedProfiles,
+          lastConnectionId
+        });
+        setStateLoaded(true);
+      })
+      .catch((error) => {
+        logError(error, {
+          source: "appContext.loadState",
+          message: "Failed to load local application state"
+        });
+        setState(defaultState);
+        setStateLoaded(true);
       });
-      setStateLoaded(true);
-    });
   }, []);
 
   const persist = useCallback(async (nextState: LocalState) => {
@@ -236,7 +246,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (prev && !nextIndices.includes(prev)) return undefined;
         return prev;
       });
-    } catch {
+    } catch (error) {
+      logError(error, {
+        source: "appContext.refreshIndices",
+        message: `Failed to refresh Elasticsearch indices for ${target.name}`
+      });
       setIndices([]);
       setIndicesMeta([]);
     }

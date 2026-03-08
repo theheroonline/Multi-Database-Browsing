@@ -2,6 +2,7 @@ import { Modal } from "antd";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { logError } from "../../../lib/errorLog";
 import type { ConnectionProfile } from "../../../lib/types";
 import { useAppContext } from "../../../state/AppContext";
 import { mysqlConnect, mysqlDisconnect } from "../services/client";
@@ -111,6 +112,10 @@ export default function MysqlConnectionsPage() {
       setMessageType("success");
       setError(t("connections.connectionSuccess", { name: profile.name }));
     } catch (err) {
+      logError(err, {
+        source: "mysqlConnections.testConnection",
+        message: `Failed to test MySQL connection ${id}`
+      });
       setMessageType("error");
       setError(t("connections.connectionFailed", { error: err instanceof Error ? err.message : String(err) }));
     } finally {

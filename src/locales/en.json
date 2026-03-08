@@ -158,6 +158,14 @@
     "switchLanguage": "{{language}}",
     "switchLanguageTitle": "Switch to {{language}}"
   },
+  "errorLog": {
+    "button": "Error Log",
+    "open": "Open shared error log",
+    "title": "Shared Error Log",
+    "empty": "No errors have been recorded yet.",
+    "clear": "Clear Log",
+    "total": "{{count}} error entries"
+  },
   "connections": {
     "title": "Connections",
     "createConnection": "New Connection",
@@ -303,7 +311,8 @@
     "sidebar": {
       "dataBrowser": "Data Browser",
       "sqlQuery": "SQL Query",
-      "tableManager": "Table Manager"
+      "tableManager": "Table Manager",
+      "tableWorkspace": "Table Detail"
     },
     "query": {
       "title": "MySQL Query",
@@ -331,7 +340,14 @@
     },
     "tableManager": {
       "databases": "Databases",
+      "tables": "Tables",
+      "openDatabase": "Open Database",
+      "closeDatabase": "Close Database",
+      "createDatabase": "Create Database",
       "createTable": "Create Table",
+      "openTable": "Open Table",
+      "designTable": "Design Table",
+      "copyTable": "Copy Table",
       "dropTable": "Drop Table",
       "truncate": "Truncate",
       "addColumn": "Add Column",
@@ -350,7 +366,31 @@
       "refreshTables": "Refresh",
       "structure": "Structure",
       "data": "Data",
-      "selectTableDataHint": "Double-click a table to browse data, or right-click for more options"
+      "selectTableDataHint": "Double-click a table to open it, or right-click for more actions",
+      "openDatabaseHint": "Double-click a database in the left sidebar to show its tables here.",
+      "tableOpenedHint": "The table is open. Switch between structure and data views as needed.",
+      "backToTables": "Back To Tables",
+      "filterData": "Filter",
+      "sortData": "Sort",
+      "filterColumn": "Filter Column",
+      "filterValue": "Filter Value",
+      "sortColumn": "Sort Column",
+      "sortDirection": "Sort Direction",
+      "clearFilter": "Clear Filter",
+      "clearSort": "Clear Sort",
+      "copyCellValue": "Copy Cell Value",
+      "filterByCurrentValue": "Filter By This Value",
+      "filterSummary": "Filter: {{column}} = {{value}}",
+      "sortSummary": "Sort: {{column}} {{direction}}",
+      "noFilterApplied": "No filter applied",
+      "noSortApplied": "No sort applied",
+      "closeCurrentTab": "Close Current",
+      "closeOtherTabs": "Close Others",
+      "closeAllTabs": "Close All",
+      "tableCount": "{{count}} tables",
+      "copyTablePrompt": "Enter the name of the copied table",
+      "createDatabasePrompt": "Enter the new database name",
+      "dropDatabaseConfirm": "Delete database {{name}}? This action cannot be undone."
     }
   }
 }

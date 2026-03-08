@@ -2,6 +2,7 @@ import { Modal } from "antd";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { logError } from "../../../lib/errorLog";
 import type { AuthType, ConnectionProfile } from "../../../lib/types";
 import { useAppContext } from "../../../state/AppContext";
 import { pingCluster } from "../services/client";
@@ -73,8 +74,11 @@ export default function EsConnectionsPage() {
           url.password = "";
           nextBaseUrl = url.toString().replace(/\/$/, "");
         }
-      } catch {
-        // ignore parse errors
+      } catch (error) {
+        logError(error, {
+          source: "esConnections.parseBaseUrl",
+          message: `Failed to parse Elasticsearch URL ${form.baseUrl}`
+        });
       }
     }
 
@@ -125,6 +129,10 @@ export default function EsConnectionsPage() {
       setMessageType("success");
       setError(t("connections.connectionSuccess", { name: connection.name }));
     } catch (err) {
+      logError(err, {
+        source: "esConnections.testConnection",
+        message: `Failed to test Elasticsearch connection ${id}`
+      });
       setMessageType("error");
       setError(t("connections.connectionFailedSimple"));
     } finally {

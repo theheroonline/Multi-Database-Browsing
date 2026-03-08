@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { logError } from "../../../lib/errorLog";
 import { useAppContext } from "../../../state/AppContext";
 import { esRequestRaw } from "../services/client";
 
@@ -56,7 +57,11 @@ export default function RestConsole() {
       if (!raw) return [];
       const parsed = JSON.parse(raw) as ScriptTemplate[];
       return Array.isArray(parsed) ? parsed : [];
-    } catch {
+    } catch (error) {
+      logError(error, {
+        source: "restConsole.loadTemplates",
+        message: "Failed to parse REST console templates from local storage"
+      });
       return [];
     }
   });
@@ -163,6 +168,10 @@ export default function RestConsole() {
       const formatted = formatJson(requestBody.trim() || "{}");
       setRequestBody(formatted);
     } catch (err) {
+      logError(err, {
+        source: "restConsole.formatRequest",
+        message: "Failed to format REST request payload"
+      });
       setError(`${t("restConsole.invalidJsonFormat")}${err instanceof Error ? err.message : t("restConsole.parseFailed")}`);
     }
   };
@@ -174,6 +183,10 @@ export default function RestConsole() {
       const formatted = formatJson(response.body);
       setResponse((prev) => ({ ...prev, body: formatted }));
     } catch (err) {
+      logError(err, {
+        source: "restConsole.formatResponse",
+        message: "Failed to format REST response payload"
+      });
       setError(`${t("restConsole.invalidResponseJson")}${err instanceof Error ? err.message : t("restConsole.parseFailed")}`);
     }
   };
@@ -238,8 +251,11 @@ export default function RestConsole() {
   const copyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-    } catch {
-      // ignore
+    } catch (error) {
+      logError(error, {
+        source: "restConsole.copyText",
+        message: "Failed to copy REST console text to clipboard"
+      });
     }
   };
 
@@ -315,6 +331,10 @@ export default function RestConsole() {
             try {
               body = JSON.parse(cmd.bodyText);
             } catch (err) {
+              logError(err, {
+                source: "restConsole.parseBatchBody",
+                message: `Failed to parse batch command JSON for ${cmd.method} ${cmd.path}`
+              });
               results[current] = {
                 index: current,
                 method: cmd.method,
@@ -347,8 +367,11 @@ export default function RestConsole() {
               if (pretty) {
                 try {
                   nextBody = JSON.stringify(JSON.parse(res.body), null, 2);
-                } catch {
-                  // keep raw if not json
+                } catch (error) {
+                  logError(error, {
+                    source: "restConsole.prettyBatchResponse",
+                    message: `Failed to pretty print batch response for ${cmd.method} ${cmd.path}`
+                  });
                 }
               }
 
@@ -439,8 +462,11 @@ export default function RestConsole() {
       if (pretty) {
         try {
           nextBody = JSON.stringify(JSON.parse(res.body), null, 2);
-        } catch {
-          // keep raw if not json
+        } catch (error) {
+          logError(error, {
+            source: "restConsole.prettyResponse",
+            message: `Failed to pretty print response for ${method} ${normalizedPath}`
+          });
         }
       }
 
@@ -452,6 +478,10 @@ export default function RestConsole() {
         finishedAt: Date.now()
       });
     } catch (err) {
+      logError(err, {
+        source: "restConsole.execute",
+        message: `REST console execution failed for ${method} ${normalizedPath}`
+      });
       setError(`${t("restConsole.requestFailed")}${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setResponse((prev) => (prev.finishedAt ? prev : { ...prev, finishedAt: Date.now() }));
