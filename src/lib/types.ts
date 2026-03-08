@@ -1,5 +1,5 @@
 export type AuthType = "none" | "basic" | "apiKey";
-export type EngineType = "elasticsearch" | "mysql";
+export type EngineType = "elasticsearch" | "mysql" | "redis";
 
 export interface SshTunnelConfig {
   enabled: boolean;
@@ -23,6 +23,9 @@ export interface ConnectionProfile {
   mysqlHost?: string;
   mysqlPort?: number;
   mysqlDatabase?: string;
+  redisHost?: string;
+  redisPort?: number;
+  redisDatabase?: number;
   authType: AuthType;
   verifyTls: boolean;
   ssh?: SshTunnelConfig;

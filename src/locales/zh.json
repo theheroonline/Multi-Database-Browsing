@@ -183,6 +183,9 @@
     "mysqlHost": "MySQL 主机",
     "mysqlPort": "MySQL 端口",
     "mysqlDatabase": "MySQL 数据库",
+    "redisHost": "Redis 主机",
+    "redisPort": "Redis 端口",
+    "redisDatabase": "Redis 数据库",
     "useSshTunnel": "使用 SSH 隧道",
     "sshHost": "SSH 主机",
     "sshPort": "SSH 端口",
@@ -219,7 +222,8 @@
     "selectTypeTitle": "选择数据库类型",
     "selectTypeDescription": "请选择要配置的数据库连接类型。",
     "elasticsearchEntry": "Elasticsearch 连接",
-    "mysqlEntry": "MySQL 连接"
+    "mysqlEntry": "MySQL 连接",
+    "redisEntry": "Redis 连接"
   },
   "sqlQuery": {
     "title": "SQL 查询",
@@ -458,6 +462,72 @@
       "copyTablePrompt": "请输入复制后的新表名",
       "createDatabasePrompt": "请输入新数据库名称",
       "dropDatabaseConfirm": "确定删除数据库 {{name}} 吗？此操作不可恢复。"
+    }
+  },
+  "redis": {
+    "sidebar": {
+      "browser": "Key 浏览",
+      "console": "Redis 控制台"
+    },
+    "browser": {
+      "title": "Redis Key 浏览",
+      "noConnection": "请先选择 Redis 连接",
+      "patternPlaceholder": "输入匹配模式，例如 user:*",
+      "newKey": "新增 Key",
+      "createKey": "新增 Key",
+      "editKey": "编辑 Key",
+      "deleteKey": "删除 Key",
+      "deleteKeys": "批量删除 Key",
+      "saveKey": "保存 Key",
+      "editTtl": "修改 TTL",
+      "saveTtl": "保存 TTL",
+      "keyName": "Key 名称",
+      "key": "Key",
+      "type": "类型",
+      "value": "值",
+      "ttl": "TTL",
+      "ttlMs": "TTL（毫秒）",
+      "enableTtl": "设置 TTL",
+      "ttlHelp": "关闭开关表示清除 TTL，使 key 变为永久有效。",
+      "detail": "Key 详情",
+      "emptyKeys": "当前数据库下没有匹配的 key",
+      "loadMore": "继续加载",
+      "nextBatch": "下一批",
+      "cursor": "游标",
+      "batchSize": "单批 {{count}} 条",
+      "batchHint": "当前只展示最近扫描到的一批 key（{{count}} / {{batch}}），适合几十万 key 的场景。",
+      "selectVisible": "全选当前结果",
+      "selectedCount": "已选 {{count}} 个 Key",
+      "deleteSelected": "删除选中（{{count}}）",
+      "noKeySelected": "请选择左侧 key 查看详情",
+      "truncated": "当前只展示首批内容，超长集合请结合控制台命令继续查看。",
+      "keyRequired": "请输入 Key 名称",
+      "invalidTtl": "TTL 必须是大于等于 0 的整数毫秒值",
+      "deleteConfirm": "确认删除 Key：{{key}}？此操作不可恢复。",
+      "deleteBatchConfirm": "确认删除选中的 {{count}} 个 Key？此操作不可恢复。",
+      "deleteTypeToConfirm": "请输入 DELETE 以确认删除。",
+      "moreKeys": "还有 {{count}} 个 Key 未展示",
+      "editUnsupported": "当前 key 类型暂不支持图形化编辑，可改用 Redis Console。",
+      "editorStringHint": "string 类型直接输入原始文本内容。",
+      "editorHashHint": "hash 类型使用表格逐行编辑 field / value。",
+      "editorListHint": "list 类型使用表格按顺序编辑每一项。",
+      "editorSetHint": "set 类型使用表格编辑成员，保存时按集合写入。",
+      "editorZsetHint": "zset 类型使用表格编辑 member 和 score。",
+      "fieldColumn": "Field",
+      "valueColumn": "Value",
+      "memberColumn": "Member",
+      "scoreColumn": "Score",
+      "actionsColumn": "操作",
+      "addRow": "添加行"
+    },
+    "console": {
+      "title": "Redis 控制台",
+      "execute": "执行命令",
+      "help": "支持输入原始 Redis 命令，支持基本引号与转义，例如 GET user:1 或 SET \"demo:key\" \"hello world\"。",
+      "lastCommand": "最近执行",
+      "noOutput": "暂无输出",
+      "noConnection": "请先连接 Redis",
+      "emptyCommand": "请输入 Redis 命令"
     }
   }
 }

@@ -182,6 +182,9 @@
     "mysqlHost": "MySQL Host",
     "mysqlPort": "MySQL Port",
     "mysqlDatabase": "MySQL Database",
+    "redisHost": "Redis Host",
+    "redisPort": "Redis Port",
+    "redisDatabase": "Redis Database",
     "useSshTunnel": "Use SSH Tunnel",
     "sshHost": "SSH Host",
     "sshPort": "SSH Port",
@@ -218,7 +221,8 @@
     "selectTypeTitle": "Select Database Type",
     "selectTypeDescription": "Choose which database connection type you want to configure.",
     "elasticsearchEntry": "Elasticsearch Connections",
-    "mysqlEntry": "MySQL Connections"
+    "mysqlEntry": "MySQL Connections",
+    "redisEntry": "Redis Connections"
   },
   "sqlQuery": {
     "title": "SQL Query",
@@ -457,6 +461,72 @@
       "copyTablePrompt": "Enter the name of the copied table",
       "createDatabasePrompt": "Enter the new database name",
       "dropDatabaseConfirm": "Delete database {{name}}? This action cannot be undone."
+    }
+  },
+  "redis": {
+    "sidebar": {
+      "browser": "Key Browser",
+      "console": "Redis Console"
+    },
+    "browser": {
+      "title": "Redis Key Browser",
+      "noConnection": "Please select a Redis connection first",
+      "patternPlaceholder": "Enter a match pattern, e.g. user:*",
+      "newKey": "New Key",
+      "createKey": "Create Key",
+      "editKey": "Edit Key",
+      "deleteKey": "Delete Key",
+      "deleteKeys": "Delete Keys",
+      "saveKey": "Save Key",
+      "editTtl": "Edit TTL",
+      "saveTtl": "Save TTL",
+      "keyName": "Key Name",
+      "key": "Key",
+      "type": "Type",
+      "value": "Value",
+      "ttl": "TTL",
+      "ttlMs": "TTL (ms)",
+      "enableTtl": "Set TTL",
+      "ttlHelp": "Turn this off to clear the TTL and keep the key persistent.",
+      "detail": "Key Detail",
+      "emptyKeys": "No matching keys in the current database",
+      "loadMore": "Load More",
+      "nextBatch": "Next Batch",
+      "cursor": "Cursor",
+      "batchSize": "Batch {{count}}",
+      "batchHint": "Only the latest scanned batch of keys is shown ({{count}} / {{batch}}), which keeps very large keyspaces responsive.",
+      "selectVisible": "Select visible keys",
+      "selectedCount": "{{count}} keys selected",
+      "deleteSelected": "Delete Selected ({{count}})",
+      "noKeySelected": "Select a key on the left to inspect it",
+      "truncated": "Only the first batch of values is shown. Use the console for larger collections.",
+      "keyRequired": "Please enter a key name",
+      "invalidTtl": "TTL must be an integer number of milliseconds greater than or equal to 0",
+      "deleteConfirm": "Delete key {{key}}? This action cannot be undone.",
+      "deleteBatchConfirm": "Delete the selected {{count}} keys? This action cannot be undone.",
+      "deleteTypeToConfirm": "Type DELETE to confirm the deletion.",
+      "moreKeys": "{{count}} more keys not shown",
+      "editUnsupported": "This key type is not supported in the visual editor yet. Use Redis Console instead.",
+      "editorStringHint": "For string keys, enter raw text directly.",
+      "editorHashHint": "For hash keys, edit field / value rows in the table.",
+      "editorListHint": "For list keys, edit ordered rows in the table.",
+      "editorSetHint": "For set keys, edit member rows in the table.",
+      "editorZsetHint": "For zset keys, edit member and score rows in the table.",
+      "fieldColumn": "Field",
+      "valueColumn": "Value",
+      "memberColumn": "Member",
+      "scoreColumn": "Score",
+      "actionsColumn": "Actions",
+      "addRow": "Add Row"
+    },
+    "console": {
+      "title": "Redis Console",
+      "execute": "Execute",
+      "help": "Enter raw Redis commands with basic quote and escape support, for example GET user:1 or SET \"demo:key\" \"hello world\".",
+      "lastCommand": "Last Command",
+      "noOutput": "No output yet",
+      "noConnection": "Please connect to Redis first",
+      "emptyCommand": "Please enter a Redis command"
     }
   }
 }

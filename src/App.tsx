@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import ErrorLogModal from "./components/ErrorLogModal";
 import { logError, useErrorLog } from "./lib/errorLog";
+import type { ConnectionProfile } from "./lib/types";
 import EsConnectionsPage from "./modules/es/pages/Connections";
 import DataBrowser from "./modules/es/pages/DataBrowser";
 import IndexManager from "./modules/es/pages/IndexManager";
@@ -13,8 +14,13 @@ import MysqlConnectionsPage from "./modules/mysql/pages/Connections";
 import MysqlSqlQuery from "./modules/mysql/pages/SqlQuery";
 import MysqlTableManager from "./modules/mysql/pages/TableManager";
 import { mysqlConnect, mysqlDisconnect, mysqlListDatabases, mysqlListTables, mysqlQuery } from "./modules/mysql/services/client";
+import RedisBrowserPage from "./modules/redis/pages/Browser";
+import RedisConnectionsPage from "./modules/redis/pages/Connections";
+import RedisConsolePage from "./modules/redis/pages/Console";
+import { redisConnect, redisDisconnect, redisListDatabases } from "./modules/redis/services/client";
 import { AppProvider, useAppContext } from "./state/AppContext";
 import { getMysqlOpenedTableKey, MysqlProvider, useMysqlContext } from "./state/MysqlContext";
+import { RedisProvider, useRedisContext } from "./state/RedisContext";
 
 type ConnectionStatus = "success" | "idle" | "failed";
 
@@ -22,7 +28,9 @@ function App() {
   return (
     <AppProvider>
       <MysqlProvider>
-        <AppLayout />
+        <RedisProvider>
+          <AppLayout />
+        </RedisProvider>
       </MysqlProvider>
     </AppProvider>
   );
@@ -60,6 +68,17 @@ function AppLayout() {
     setActiveOpenedTableKey,
     getMysqlConnectionById
   } = useMysqlContext();
+  const {
+    setDatabases: setRedisDatabases,
+    setSelectedDatabase: setSelectedRedisDatabase,
+    setScannedKeys: setRedisScannedKeys,
+    setNextCursor: setRedisNextCursor,
+    setHasMoreKeys: setRedisHasMoreKeys,
+    setSelectedKey: setRedisSelectedKey,
+    setSelectedKeyDetail: setRedisSelectedKeyDetail,
+    getRedisConnectionById,
+    resetRedisWorkspace,
+  } = useRedisContext();
 
   const esProfiles = useMemo(
     () => state.profiles.filter((item) => (item.engine ?? "elasticsearch") === "elasticsearch"),
@@ -69,7 +88,11 @@ function AppLayout() {
     () => state.profiles.filter((item) => item.engine === "mysql"),
     [state.profiles]
   );
-  const allProfiles = useMemo(() => [...esProfiles, ...mysqlProfiles], [esProfiles, mysqlProfiles]);
+  const redisProfiles = useMemo(
+    () => state.profiles.filter((item) => item.engine === "redis"),
+    [state.profiles]
+  );
+  const allProfiles = useMemo(() => [...esProfiles, ...mysqlProfiles, ...redisProfiles], [esProfiles, mysqlProfiles, redisProfiles]);
 
   const activeProfile = activeConnectionId
     ? state.profiles.find((p) => p.id === activeConnectionId)
@@ -78,6 +101,7 @@ function AppLayout() {
 
   const [esExpanded, setEsExpanded] = useState(true);
   const [mysqlExpanded, setMysqlExpanded] = useState(true);
+  const [redisExpanded, setRedisExpanded] = useState(true);
   const [focusedConnectionId, setFocusedConnectionId] = useState<string | undefined>(undefined);
   const [contextMenu, setContextMenu] = useState<{ connectionId: string; x: number; y: number } | null>(null);
   const [mysqlDatabaseContextMenu, setMysqlDatabaseContextMenu] = useState<{ database: string; x: number; y: number } | null>(null);
@@ -122,17 +146,28 @@ function AppLayout() {
         });
       }
     }
+    if (currentProfile?.engine === "redis") {
+      try {
+        await redisDisconnect(connectionId);
+      } catch (error) {
+        logError(error, {
+          source: "app.connection.redis.disconnectBeforeEdit",
+          message: `Failed to disconnect Redis connection ${connectionId} before editing config`
+        });
+      }
+    }
 
     await disconnectActiveConnection();
     setIsWorkspaceSuspended(false);
     resetMysqlWorkspace();
+    resetRedisWorkspace();
     setConnectionStatusById((prev) => ({
       ...prev,
       [connectionId]: "idle"
     }));
   };
 
-  const openConnectionConfig = async (engine: "elasticsearch" | "mysql", action: "add" | "edit" | "copy", connectionId?: string) => {
+  const openConnectionConfig = async (engine: "elasticsearch" | "mysql" | "redis", action: "add" | "edit" | "copy", connectionId?: string) => {
     if (action === "edit") {
       await disconnectConnectionForEdit(connectionId);
     }
@@ -141,7 +176,11 @@ function AppLayout() {
     if (connectionId) {
       params.set("id", connectionId);
     }
-    const basePath = engine === "mysql" ? "/mysql/connections" : "/connections";
+    const basePath = engine === "mysql"
+      ? "/mysql/connections"
+      : engine === "redis"
+        ? "/redis/connections"
+        : "/connections";
     navigate(`${basePath}?${params.toString()}`, {
       state: { from: location.pathname }
     });
@@ -154,7 +193,11 @@ function AppLayout() {
         setConnectionActionError("");
         setIsWorkspaceSuspended(false);
         const profile = state.profiles.find((p) => p.id === value);
-        const targetRoute = profile?.engine === "mysql" ? "/mysql/tables" : "/data";
+        const targetRoute = profile?.engine === "mysql"
+          ? "/mysql/tables"
+          : profile?.engine === "redis"
+            ? "/redis/browser"
+            : "/data";
         await navigate(targetRoute);
       }
       return true;
@@ -208,6 +251,36 @@ function AppLayout() {
         markConnectionSuccess(value);
         setIsWorkspaceSuspended(false);
         await navigate("/mysql/tables");
+      } else if (profile.engine === "redis") {
+        const redisConn = getRedisConnectionById(value);
+        if (!redisConn) throw new Error("CONNECTION_FAILED");
+
+        if (shouldValidate) {
+          await redisConnect(redisConn);
+        }
+
+        await setActiveConnection(value);
+        resetRedisWorkspace();
+        try {
+          const dbs = await redisListDatabases(value);
+          setRedisDatabases(dbs);
+        } catch (error) {
+          logError(error, {
+            source: "app.connection.redis.listDatabases",
+            message: "Failed to load Redis databases after switching connection"
+          });
+          setRedisDatabases([]);
+        }
+        setSelectedRedisDatabase(redisConn.database ?? 0);
+        setRedisScannedKeys([]);
+        setRedisNextCursor("0");
+        setRedisHasMoreKeys(false);
+        setRedisSelectedKey(null);
+        setRedisSelectedKeyDetail(null);
+
+        markConnectionSuccess(value);
+        setIsWorkspaceSuspended(false);
+        await navigate("/redis/browser");
       } else {
         // ES connection flow
         const connection = getConnectionById(value);
@@ -265,10 +338,21 @@ function AppLayout() {
           });
         }
       }
+      if (currentProfile?.engine === "redis") {
+        try {
+          await redisDisconnect(currentId);
+        } catch (error) {
+          logError(error, {
+            source: "app.connection.redis.disconnect",
+            message: `Failed to disconnect Redis connection ${currentId}`
+          });
+        }
+      }
 
       await disconnectActiveConnection();
       setIsWorkspaceSuspended(false);
       resetMysqlWorkspace();
+      resetRedisWorkspace();
       setConnectionStatusById((prev) => ({
         ...prev,
         [currentId]: "idle"
@@ -639,14 +723,16 @@ function AppLayout() {
 
   const showEsConnectionsTab = location.pathname.startsWith("/connections");
   const showMysqlConnectionsTab = location.pathname.startsWith("/mysql/connections");
-  const showConnectionsTab = showEsConnectionsTab || showMysqlConnectionsTab;
+  const showRedisConnectionsTab = location.pathname.startsWith("/redis/connections");
+  const showConnectionsTab = showEsConnectionsTab || showMysqlConnectionsTab || showRedisConnectionsTab;
   const canShowWorkspace = (Boolean(activeConnectionId) && !isWorkspaceSuspended) || showConnectionsTab;
 
   const isEsWorkspace = activeEngine === "elasticsearch" || showEsConnectionsTab;
   const isMysqlWorkspace = activeEngine === "mysql" || showMysqlConnectionsTab;
+  const isRedisWorkspace = activeEngine === "redis" || showRedisConnectionsTab;
 
   // Shared connection tree item renderer
-  const renderConnectionItem = (profile: typeof esProfiles[0]) => {
+  const renderConnectionItem = (profile: ConnectionProfile) => {
     const status = connectionStatusById[profile.id] ?? "idle";
     return (
       <div
@@ -929,6 +1015,39 @@ function AppLayout() {
             )}
           </div>
 
+          {/* Redis connections */}
+          <div className="mdb-tree-group" style={{ marginTop: "8px" }}>
+            <div className="mdb-tree-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setRedisExpanded((prev) => !prev)}
+                style={{ padding: "2px 6px", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", fontWeight: 500 }}
+              >
+                <span>{redisExpanded ? "▾" : "▸"}</span>
+                <span>Redis</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => void openConnectionConfig("redis", "add")}
+                title={t("connections.createConnection")}
+                style={{ padding: "2px 8px", minWidth: "28px" }}
+              >
+                +
+              </button>
+            </div>
+
+            {redisExpanded && (
+              <div className="mdb-tree-items" style={{ paddingLeft: "18px", marginTop: "4px" }}>
+                {redisProfiles.map((profile) => (
+                  <div key={profile.id}>{renderConnectionItem(profile)}</div>
+                ))}
+                {redisProfiles.length === 0 && <div className="mdb-tree-empty">{t("connections.noConnections")}</div>}
+              </div>
+            )}
+          </div>
+
           {/* Connection action error */}
           {connectionActionError && (
             <div className="text-danger" style={{ fontSize: "12px", marginTop: "6px", padding: "0 12px" }}>
@@ -1016,6 +1135,21 @@ function AppLayout() {
               )}
             </div>
 
+            {/* Redis tabs */}
+            <div className="mdb-tabs" style={{ display: isRedisWorkspace ? "flex" : "none" }}>
+              <NavLink to="/redis/browser" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
+                {t("redis.sidebar.browser")}
+              </NavLink>
+              <NavLink to="/redis/console" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
+                {t("redis.sidebar.console")}
+              </NavLink>
+              {showRedisConnectionsTab && (
+                <NavLink to="/redis/connections" className={({ isActive }) => `mdb-tab ${isActive ? "active" : ""}`}>
+                  {t("sidebar.connections")}
+                </NavLink>
+              )}
+            </div>
+
             <section className="mdb-content">
               {/* Routes for redirects and connection pages */}
               <Routes>
@@ -1025,6 +1159,8 @@ function AppLayout() {
                 <Route path="/mysql" element={<Navigate to="/mysql/tables" replace />} />
                 <Route path="/mysql/connections" element={<MysqlConnectionsPage />} />
                 <Route path="/mysql/table" element={null} />
+                <Route path="/redis" element={<Navigate to="/redis/browser" replace />} />
+                <Route path="/redis/connections" element={<RedisConnectionsPage />} />
                 <Route path="*" element={null} />
               </Routes>
 
@@ -1048,6 +1184,14 @@ function AppLayout() {
               </div>
               <div style={{ display: location.pathname === "/mysql/tables" || location.pathname === "/mysql/table" ? undefined : "none" }}>
                 <MysqlTableManager />
+              </div>
+
+              {/* Redis pages - always mounted, display toggled */}
+              <div style={{ display: location.pathname === "/redis/browser" ? undefined : "none" }}>
+                <RedisBrowserPage />
+              </div>
+              <div style={{ display: location.pathname === "/redis/console" ? undefined : "none" }}>
+                <RedisConsolePage />
               </div>
             </section>
           </div>

@@ -346,6 +346,195 @@ body {
   white-space: nowrap;
 }
 
+.redis-browser-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 42%) minmax(360px, 1fr);
+  gap: 14px;
+  min-height: calc(100vh - 150px);
+}
+
+.redis-browser-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.redis-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.redis-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.redis-scan-count-select {
+  min-width: 120px;
+}
+
+.redis-batch-hint {
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.redis-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 12px;
+}
+
+.redis-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #304153;
+}
+
+.redis-key-table-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.redis-row-active {
+  background: #eef4ff;
+}
+
+.redis-meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.redis-detail-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.redis-ttl-button {
+  min-width: 84px;
+  font-variant-numeric: tabular-nums;
+}
+
+.redis-detail-pre {
+  margin: 0;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #d9e1ec;
+  background: linear-gradient(180deg, #f9fbfe 0%, #eef3f9 100%);
+  color: #243244;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+
+.redis-value-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.redis-value-chip {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #d4deeb;
+  background: #f5f8fc;
+  color: #304153;
+  font-size: 12px;
+}
+
+.redis-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.redis-editor-ttl-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.redis-editor-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #55606f;
+}
+
+.redis-editor-value-row {
+  grid-column: 1 / -1;
+}
+
+.redis-editor-textarea {
+  min-height: 280px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  resize: vertical;
+}
+
+.redis-editor-table-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.redis-editor-table .form-control {
+  min-width: 0;
+}
+
+.redis-delete-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.redis-delete-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d9e1ec;
+  background: #f8fafc;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.redis-delete-preview-item {
+  font-size: 12px;
+  color: #304153;
+  word-break: break-all;
+}
+
+@media (max-width: 1100px) {
+  .redis-browser-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .redis-toolbar {
+    flex-direction: column;
+  }
+
+  .redis-editor-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Layout & Sidebar */
 .layout {
   display: grid;
