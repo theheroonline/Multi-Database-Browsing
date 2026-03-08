@@ -57,7 +57,7 @@ npm run tauri:build  # 发布
 
 - `npm run dev` — 开发启动 / Start dev server
 - `npm run build` — 构建生产包 / Build
-- `npm run build:tauri` — 构建用于 Tauri 的产物
+- npm run build:tauri`` — 构建用于 Tauri 的产物
 - `npm run tauri:dev` / `npm run tauri:build` — Tauri 开发 / 打包
 - `npm run preview` — 预览构建结果
 - `npm run lint` — 代码检查

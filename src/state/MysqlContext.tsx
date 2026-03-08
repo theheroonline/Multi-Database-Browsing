@@ -3,14 +3,46 @@ import { createContext, useCallback, useContext, useMemo, useState } from "react
 import type { MysqlConnection } from "../modules/mysql/types";
 import { useAppContext } from "./AppContext";
 
+export type MysqlFilterOperator =
+  | "eq"
+  | "ne"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "contains"
+  | "startsWith"
+  | "endsWith"
+  | "isNull"
+  | "isNotNull"
+  | "emptyString"
+  | "notEmptyString";
+
+export interface MysqlFilterConditionNode {
+  id: string;
+  kind: "condition";
+  column: string;
+  operator: MysqlFilterOperator;
+  value?: string;
+}
+
+export interface MysqlFilterGroupNode {
+  id: string;
+  kind: "group";
+  mode: "and" | "or";
+  children: MysqlFilterNode[];
+}
+
+export type MysqlFilterNode = MysqlFilterConditionNode | MysqlFilterGroupNode;
+
 export interface MysqlOpenedTable {
   database: string;
   table: string;
   view: "data" | "structure";
-  filterColumn?: string;
-  filterValue?: string;
+  filterTree?: MysqlFilterGroupNode;
   sortColumn?: string;
   sortDirection?: "asc" | "desc";
+  visibleColumns?: string[];
 }
 
 export function getMysqlOpenedTableKey(database: string, table: string) {
